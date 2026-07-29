@@ -1,0 +1,88 @@
+# Build directories
+build/
+build-linux/
+cmake-build-*/
+out/
+.cache/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+Makefile
+*.ninja
+.ninja_*
+
+# Bot token and secrets (NEVER COMMIT THESE!)
+config.json
+bot_token.txt
+*.key
+*.pem
+*.env
+.env.*
+
+# User data and runtime state
+scripts/
+data/
+cache/
+sessions/
+core
+core.*
+vgcore.*
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Compiled files
+*.exe
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.exp
+*.pdb
+*.ilk
+routine
+routine.exe
+discord_bot
+discord_bot.exe
+
+# Module and extension binaries
+modules/*.dll
+modules/*.so
+modules/*.dylib
+lib/*.dll
+lib/*.so
+lib/*.dylib
+
+# Logs
+*.log
+logs/
+
+# Package manager
+node_modules/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*:Zone.Identifier
+
+# Backup files
+*.bak
+*.backup
+*~

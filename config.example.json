@@ -1,0 +1,14 @@
+{
+  "bot_token": "YOUR_BOT_TOKEN_HERE",
+  "application_id": "",
+  "guild_id": "",
+  "slash_commands": {
+    "enabled": true,
+    "register_on_start": true,
+    "guild_id": ""
+  },
+  "log_level": "info",
+  "reconnect_attempts": 5,
+  "heartbeat_interval": 41250,
+  "gateway_intents": 1
+}
