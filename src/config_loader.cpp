@@ -9,7 +9,7 @@ namespace discord {
 
 ConfigLoader::ConfigLoader()
     : reconnect_attempts_(5), heartbeat_interval_(41250),
-      gateway_intents_(1), slash_commands_enabled_(true),
+      gateway_intents_(37377), slash_commands_enabled_(true),
       register_commands_on_start_(true) {
 }
 
@@ -32,7 +32,10 @@ bool ConfigLoader::load(const std::string& config_path) {
         log_level_ = config.value("log_level", "info");
         reconnect_attempts_ = config.value("reconnect_attempts", 5);
         heartbeat_interval_ = config.value("heartbeat_interval", 41250);
-        gateway_intents_ = config.value("gateway_intents", 1);
+        // GUILDS | GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT.
+        // This keeps both modern interactions and the legacy prefix transport
+        // available when older config files omit the setting.
+        gateway_intents_ = config.value("gateway_intents", 37377);
         if (config.contains("slash_commands") &&
             config["slash_commands"].is_object()) {
             const json& slash = config["slash_commands"];
@@ -60,6 +63,13 @@ bool ConfigLoader::load(const std::string& config_path) {
         std::cerr << "Invalid gateway_intents in config file; unsupported Discord "
                      "intent bits were requested." << std::endl;
         return false;
+    }
+    constexpr int legacy_prefix_intents = 512 | 32768;
+    if ((gateway_intents_ & legacy_prefix_intents) != legacy_prefix_intents) {
+        std::cout << "Legacy prefix commands are unavailable with the configured "
+                     "gateway_intents. Use 37377 and enable Message Content Intent "
+                     "in the Discord Developer Portal to receive ~commands."
+                  << std::endl;
     }
     if (slash_commands_enabled_ && application_id_.empty()) {
         std::cout << "application_id is empty; slash-command registration "

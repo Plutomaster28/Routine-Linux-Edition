@@ -47,16 +47,17 @@ Edit only your local `config.json`:
   "log_level": "info",
   "reconnect_attempts": 5,
   "heartbeat_interval": 41250,
-  "gateway_intents": 1
+  "gateway_intents": 37377
 }
 ```
 
 - `application_id` is optional; Routine can learn it from READY.
 - A slash-command `guild_id` makes command updates appear immediately in one
   test server. Leave it empty when you are ready for global registration.
-- `gateway_intents: 1` is suitable for slash-command-first operation.
-- Legacy prefix commands need the Guild Messages and Message Content intent
-  bits and Message Content Intent enabled in the Developer Portal.
+- `gateway_intents: 37377` enables guild messages, direct messages, and message
+  content so both slash commands and the legacy `~` prefix work.
+- Enable **Message Content Intent** on the Bot page in the Developer Portal.
+- Slash-only deployments may use `gateway_intents: 1`.
 
 `config.json` is ignored by Git. Never copy the token into
 `config.example.json`, source code, logs, issues, or commits.

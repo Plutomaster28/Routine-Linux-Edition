@@ -106,39 +106,39 @@ void Commands::help_command(DiscordBot& bot, const json& message, const std::str
     }
     
     std::stringstream help_text;
-    help_text << "**Routine Bot - Command List**\n\n";
+    help_text << "# Routine\n";
+    help_text << "The Linux-native kernel and its loaded modules are online.\n\n";
     
     // Core Commands
-    help_text << "**Core Commands:**\n";
-    help_text << "• `/ping` - Check if the bot is alive\n";
-    help_text << "• `/echo` - Bot repeats your message\n";
-    help_text << "• `/bench` - Show C++ performance metrics\n";
-    help_text << "• `/help` - Show this help message\n\n";
+    help_text << "## Start here\n";
+    help_text << "• `/economy` — open the complete game menu\n";
+    help_text << "• `/profile` — see your character, finances, and assets\n";
+    help_text << "• `/balance` — check immediately available money\n";
+    help_text << "• `/daily` and `/work` — earn your first cash\n\n";
     
     // Kernel Commands
-    help_text << "**Kernel Commands:**\n";
-    help_text << "• `/version` - Show kernel version and build info\n";
-    help_text << "• `/uptime` - Show how long bot has been running\n";
-    help_text << "• `/status` - Show runtime statistics\n";
-    help_text << "• `/reload` - Hot-reload modules\n";
-    help_text << "• `/list` - List loaded modules\n\n";
+    help_text << "## Kernel\n";
+    help_text << "• `/ping` — connection check\n";
+    help_text << "• `/status` — runtime health and resource usage\n";
+    help_text << "• `/version` — kernel and build information\n";
+    help_text << "• `/uptime` — current process uptime\n";
+    help_text << "• `/list` — loaded modules and extensions\n";
+    help_text << "• `/bench` — C++ kernel benchmark\n\n";
     
     // Native Module Commands
     auto native_modules = bot.get_module_loader()->get_loaded_modules();
     if (!native_modules.empty()) {
-        help_text << "**Native Module Commands:**\n";
+        help_text << "## Loaded game modules\n";
         for (const auto& mod_name : native_modules) {
             ModuleInfo* info = bot.get_module_loader()->get_module_info(mod_name);
-            if (info) {
-                help_text << "*" << info->name << " v" << info->version << "* - " << info->description << "\n";
-            } else {
-                help_text << "*" << mod_name << "*\n";
-            }
-            
-            // Get commands from this module
             auto cmds = bot.get_module_loader()->get_module_commands(mod_name);
-            for (const auto& cmd : cmds) {
-                help_text << "• `/" << cmd << "`\n";
+            if (info) {
+                help_text << "• **" << info->name << " v" << info->version
+                          << "** — " << info->description << " ("
+                          << cmds.size() << " commands)\n";
+            } else {
+                help_text << "• **" << mod_name << "** (" << cmds.size()
+                          << " commands)\n";
             }
         }
         help_text << "\n";
@@ -147,15 +147,16 @@ void Commands::help_command(DiscordBot& bot, const json& message, const std::str
     // Lua Module Commands
     auto lua_modules = bot.get_lua_module_loader()->get_loaded_modules();
     if (!lua_modules.empty()) {
-        help_text << "**Lua Module Commands:**\n";
+        help_text << "## Lua modules\n";
         for (const auto& mod_name : lua_modules) {
-            help_text << "*" << mod_name << "*\n";
+            help_text << "• **" << mod_name << "**: ";
             
-            // Get commands from this module
             auto cmds = bot.get_lua_module_loader()->get_module_commands(mod_name);
-            for (const auto& cmd : cmds) {
-                help_text << "• `/" << cmd << "`\n";
+            for (size_t index = 0; index < cmds.size(); ++index) {
+                if (index) help_text << ", ";
+                help_text << "`/" << cmds[index] << "`";
             }
+            help_text << "\n";
         }
         help_text << "\n";
     }
@@ -165,8 +166,12 @@ void Commands::help_command(DiscordBot& bot, const json& message, const std::str
         help_text << "Place modules in `modules/` folder\n\n";
     }
     
-    help_text << "*Legacy `~` prefix commands remain available.*\n\n";
-    help_text << "*Made with organic, fat-free C++*";
+    help_text << "## Command input\n";
+    help_text << "Slash commands show an optional **input** box when they accept "
+                 "parameters. Leave it blank to open that command's own help.\n";
+    help_text << "Legacy mode uses the same command names and parameters with `~`, "
+                 "for example `~balance` or `~pay @user 250`.\n\n";
+    help_text << "*Made with organic, fat-free C++.*";
     
     bot.send_message(channel_id, help_text.str());
 }

@@ -49,7 +49,7 @@ The bundled economy commands are documented in
   "log_level": "info",
   "reconnect_attempts": 5,
   "heartbeat_interval": 41250,
-  "gateway_intents": 1
+  "gateway_intents": 37377
 }
 ```
 

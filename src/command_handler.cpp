@@ -1,5 +1,6 @@
 #include "command_handler.hpp"
 #include "discord_bot.hpp"
+#include "discord_command_utils.hpp"
 #include "discord_interaction_utils.hpp"
 #include "module_loader.hpp"
 #include "lua_module.hpp"
@@ -10,6 +11,20 @@
 #include <map>
 
 namespace discord {
+namespace {
+
+std::string slash_input_prompt(const std::string& command) {
+    if (command == "echo") return "Text for Routine to repeat";
+    if (command == "reload") return "Module name to reload";
+    if (command == "script") return "Script action and parameters";
+    if (command == "pay") return "Recipient and amount, for example: @user 250";
+    if (command == "stock") return "Action, ticker, and quantity; leave blank for help";
+    if (command == "orders") return "Action and order details; leave blank for help";
+    if (command == "econadmin") return "Admin action and values; leave blank for help";
+    return "Options, amounts, or targets; leave blank to show command help";
+}
+
+}  // namespace
 
 CommandHandler::CommandHandler(const std::string& prefix)
     : prefix_(prefix), bot_(nullptr) {
@@ -45,7 +60,7 @@ bool CommandHandler::handle_message(const json& message) {
         
         // Parse command and arguments
         std::string command, args;
-        if (!parse_command(content, command, args)) {
+        if (!parse_prefixed_command(content, prefix_, command, args)) {
             return false;
         }
         
@@ -269,8 +284,8 @@ json CommandHandler::build_application_commands() const {
             command["options"] = json::array({
                 {
                     {"type", 3},
-                    {"name", "arguments"},
-                    {"description", "Optional command arguments"},
+                    {"name", "input"},
+                    {"description", slash_input_prompt(name)},
                     {"required", false},
                     {"max_length", 1000}
                 }
@@ -279,32 +294,6 @@ json CommandHandler::build_application_commands() const {
         result.push_back(std::move(command));
     }
     return result;
-}
-
-bool CommandHandler::parse_command(const std::string& content, std::string& command, std::string& args) {
-    // Remove prefix
-    std::string without_prefix = content.substr(prefix_.length());
-    
-    // Find first space
-    size_t space_pos = without_prefix.find(' ');
-    
-    if (space_pos == std::string::npos) {
-        // No arguments, just command
-        command = without_prefix;
-        args = "";
-    } else {
-        // Split command and arguments
-        command = without_prefix.substr(0, space_pos);
-        args = without_prefix.substr(space_pos + 1);
-    }
-    
-    // Convert command to lowercase for case-insensitive matching
-    std::transform(command.begin(), command.end(), command.begin(),
-        [](unsigned char character) {
-            return static_cast<char>(std::tolower(character));
-        });
-    
-    return !command.empty();
 }
 
 } // namespace discord

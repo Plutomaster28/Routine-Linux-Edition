@@ -53,8 +53,6 @@ private:
     std::unordered_map<std::string, RegisteredCommand> commands_;
     DiscordBot* bot_;
     
-    // Helper to parse command and args from message content
-    bool parse_command(const std::string& content, std::string& command, std::string& args);
     static std::string interaction_arguments(const json& data);
 };
 

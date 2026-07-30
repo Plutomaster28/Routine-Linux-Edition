@@ -180,18 +180,27 @@ std::string status_error(int status) {
 
 void cmd_economy(void*, const char* channel_id, const char*, const char*) {
     reply(channel_id,
-        "**Routine Economy — Full Chaos Alpha**\n"
-        "**Core:** `~profile ~history ~balance ~daily ~work ~pay ~leaderboard`\n"
-        "**Banking:** `~bank ~savings ~hysa ~cd ~card ~loan ~repay ~margin ~bankruptcy`\n"
-        "**Life:** `~career ~applyjob ~college ~enroll ~certifications ~skills ~stipend`\n"
-        "**Markets:** `~market ~fundamentals ~stock ~orders ~short ~derivatives ~invest ~portfolio ~bonds`\n"
-        "**Empire:** `~business ~supply ~produce ~equipment ~marketing ~businessloan "
-        "~partnership ~payroll ~corporate ~property ~auction`\n"
-        "**Chaos:** `~gamble ~casino ~insurance ~contract ~agreement ~news ~economyinfo`\n"
-        "**Civic chaos:** `~crime ~bail ~government ~election ~taxes ~welfare`\n"
-        "**Data:** `~economystats ~chart ~mystats ~mychart ~rank`\n"
-        "**Server admins:** `~econadmin`\n"
-        "Use a command without arguments for its usage. Every server evolves independently.");
+        "# Routine Economy · Version 1\n"
+        "A persistent, server-local financial catastrophe.\n\n"
+        "**Get moving**\n"
+        "`/profile` `/balance` `/daily` `/work` `/pay` `/history` `/leaderboard`\n\n"
+        "**Banking & credit**\n"
+        "`/bank` `/savings` `/hysa` `/cd` `/card` `/loan` `/repay` `/margin` `/bankruptcy`\n\n"
+        "**Career & education**\n"
+        "`/career` `/applyjob` `/college` `/enroll` `/certifications` `/skills` `/stipend`\n\n"
+        "**The exchange**\n"
+        "`/market` `/fundamentals` `/stock` `/orders` `/short` `/derivatives` `/invest` `/portfolio` `/bonds`\n\n"
+        "**Build an empire**\n"
+        "`/business` `/supply` `/produce` `/equipment` `/marketing` `/businessloan` "
+        "`/partnership` `/payroll` `/corporate` `/property` `/auction`\n\n"
+        "**Questionable decisions**\n"
+        "`/gamble` `/casino` `/insurance` `/contract` `/agreement` `/crime` `/bail`\n\n"
+        "**Government & intelligence**\n"
+        "`/news` `/economyinfo` `/government` `/election` `/taxes` `/welfare` "
+        "`/economystats` `/chart` `/mystats` `/mychart` `/rank`\n\n"
+        "**Server administration:** `/econadmin`\n\n"
+        "Choose any slash command and leave **input** blank to see its syntax. "
+        "Legacy players can replace `/` with `~`. Every server evolves independently.");
 }
 
 void run_game_action(const char* action, const char* channel_id,

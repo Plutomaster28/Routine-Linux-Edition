@@ -41,7 +41,7 @@ bot user ID received in READY.
 ## Compatibility arguments
 
 The current module ABI exposes command arguments as one string. Routine
-therefore registers module commands with an optional `arguments` field and
+therefore registers module commands with an optional `input` field and
 passes that value to the unchanged callback. Core commands that take no
 arguments omit the field.
 
@@ -56,7 +56,9 @@ slots. Tutorial modules live under `examples/` and are not loaded by default.
 
 Prefix commands remain available for existing installations. They require
 ordinary message events and Message Content Intent. Slash commands do not
-depend on message content.
+depend on message content. The bundled configuration uses gateway intents
+`37377` so both transports work; enable **Message Content Intent** in the
+Discord Developer Portal. Slash-only deployments can use intent `1`.
 
 ## Operational notes
 

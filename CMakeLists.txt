@@ -76,6 +76,7 @@ set(SOURCES
     src/event_dispatcher.cpp
     src/discord_bot.cpp
     src/discord_message_utils.cpp
+    src/discord_command_utils.cpp
     src/discord_interaction_utils.cpp
     src/config_loader.cpp
     src/command_handler.cpp
@@ -94,6 +95,7 @@ set(HEADERS
     include/event_dispatcher.hpp
     include/discord_bot.hpp
     include/discord_message_utils.hpp
+    include/discord_command_utils.hpp
     include/discord_interaction_utils.hpp
     include/config_loader.hpp
     include/discord_types.hpp
@@ -152,6 +154,23 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME discord_message_chunking
              COMMAND discord_message_utils_test)
+
+    add_executable(discord_command_utils_test
+        tests/discord_command_utils_test.cpp
+        src/discord_command_utils.cpp
+    )
+    target_include_directories(discord_command_utils_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+    )
+    if(MSVC)
+        target_compile_options(discord_command_utils_test PRIVATE /W4)
+    else()
+        target_compile_options(discord_command_utils_test PRIVATE
+            -Wall -Wextra -pedantic
+        )
+    endif()
+    add_test(NAME legacy_prefix_parsing
+             COMMAND discord_command_utils_test)
 
     add_executable(discord_interaction_utils_test
         tests/discord_interaction_utils_test.cpp

@@ -169,6 +169,7 @@ int main(int argc, char** argv) {
     assert(g_tick_count == 1);
 
     const CommandRegistration* commands = register_commands();
+    const CommandRegistration* economy = find_command(commands, "economy");
     const CommandRegistration* balance = find_command(commands, "balance");
     const CommandRegistration* daily = find_command(commands, "daily");
     const CommandRegistration* inventory = find_command(commands, "inventory");
@@ -203,13 +204,19 @@ int main(int argc, char** argv) {
     const CommandRegistration* agreement = find_command(commands, "agreement");
     const CommandRegistration* mystats = find_command(commands, "mystats");
     const CommandRegistration* mychart = find_command(commands, "mychart");
-    assert(balance && daily && inventory && leaderboard && profile && stock &&
+    assert(economy && balance && daily && inventory && leaderboard && profile && stock &&
            derivatives && bankruptcy && orders && contract && casino && history &&
            stipend && corporate && econadmin && crime && election && government &&
            economystats && chart && rank && auction && supply && produce &&
            equipment && marketing && businessloan && partnership);
     assert(fundamentals);
     assert(certifications && skills && agreement && mystats && mychart);
+
+    economy->callback(nullptr, "300", "200", "");
+    assert(g_message.find("Routine Economy · Version 1") != std::string::npos);
+    assert(g_message.find("Legacy players can replace `/` with `~`") !=
+           std::string::npos);
+    assert(g_message.size() <= 2000);
 
     balance->callback(nullptr, "300", "200", "");
     assert(g_message.find("Wallet: **¤50.00**") != std::string::npos);
