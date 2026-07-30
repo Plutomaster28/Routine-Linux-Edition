@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -70,6 +71,17 @@ int main(int argc, char** argv) {
     std::filesystem::remove(database.string() + ".tmp", ec);
     std::filesystem::remove(database.string() + ".previous", ec);
 
+    // Start from a real pre-world-layer save to prove the Version 3 writer
+    // migrates existing Version 2 accounts without resetting them.
+    {
+        std::ofstream legacy(database);
+        assert(legacy);
+        legacy << "ROUTINE_ECONOMY 2\n"
+               << "P \"199\" \"299\" 1234 567 0 0 9 1 2 3\n"
+               << "END\n";
+        assert(legacy);
+    }
+
 #ifdef _WIN32
     _putenv_s("ROUTINE_ECONOMY_DATA", database.string().c_str());
 #else
@@ -87,7 +99,7 @@ int main(int argc, char** argv) {
         auto get_info = reinterpret_cast<extension_get_info_func>(
             library.symbol(EXTENSION_GET_INFO_NAME));
         assert(initialize && shutdown && get_api && get_info);
-        assert(std::string(get_info()->version) == "1.0.0");
+        assert(std::string(get_info()->version) == "2.0.0");
 
         ExtensionKernelBridge bridge{};
         bridge.log = test_log;
@@ -122,6 +134,13 @@ int main(int argc, char** argv) {
             api, "economy_get_currency");
 
         assert(version() == ECONOMY_EXTENSION_API_VERSION);
+
+        EconomyPlayerSnapshot migrated{};
+        assert(get_player("199", "299", &migrated) == ECONOMY_OK);
+        assert(migrated.wallet_cents == 1234);
+        assert(migrated.checking_cents == 567);
+        assert(migrated.work_count == 9);
+        assert(migrated.item_quantities[0] == 1);
 
         EconomyPlayerSnapshot first{};
         EconomyPlayerSnapshot isolated{};
@@ -314,7 +333,8 @@ int main(int argc, char** argv) {
                            game_output, sizeof(game_output)) == ECONOMY_OK);
         assert(game_action("104", "601", "collectible", "", 4000015,
                            game_output, sizeof(game_output)) == ECONOMY_OK);
-        assert(std::string(game_output).find("Launch Relics:** 2") != std::string::npos);
+        assert(std::string(game_output).find("local / global:** 2 / 2") !=
+               std::string::npos);
 
         assert(game_action("104", "600", "property", "buy 1 cash", 4000016,
                            game_output, sizeof(game_output)) == ECONOMY_OK);
@@ -353,7 +373,8 @@ int main(int argc, char** argv) {
         assert(buyer_after_rent.wallet_cents > buyer_before_rent.wallet_cents);
         assert(game_action("104", "601", "collectible", "", 4086420,
                            game_output, sizeof(game_output)) == ECONOMY_OK);
-        assert(std::string(game_output).find("Launch Relics:** 3") != std::string::npos);
+        assert(std::string(game_output).find("local / global:** 3 / 3") !=
+               std::string::npos);
         assert(game_action("104", "601", "collectible", "serials", 4086421,
                            game_output, sizeof(game_output)) == ECONOMY_OK);
         assert(std::string(game_output).find("transfer(s)") != std::string::npos);
@@ -483,7 +504,108 @@ int main(int argc, char** argv) {
         assert(game_action("109", "812", "skills", "", 9000000,
                            game_output, sizeof(game_output)) == ECONOMY_COOLDOWN);
         assert(std::string(game_output).find("rate limit") != std::string::npos);
+
+        // V2 keeps one global identity while balances and currencies remain
+        // local. Foreign exchange moves real value between existing accounts.
+        assert(game_action("110", "999", "admin", "starting 1000", 10000000,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        EconomyPlayerSnapshot source_fx{};
+        EconomyPlayerSnapshot target_fx_before{};
+        EconomyPlayerSnapshot target_fx_after{};
+        assert(get_player("110", "900", &source_fx) == ECONOMY_OK);
+        assert(get_player("111", "900", &target_fx_before) == ECONOMY_OK);
+        assert(game_action("110", "900", "forex", "quote 111 100", 10000001,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("Foreign-exchange quote") !=
+               std::string::npos);
+        assert(game_action("110", "900", "forex", "exchange 111 100", 10000002,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("Capital now") != std::string::npos);
+        assert(get_player("111", "900", &target_fx_after) == ECONOMY_OK);
+        assert(target_fx_after.wallet_cents > target_fx_before.wallet_cents);
+        assert(game_action("110", "900", "profile", "global", 10000003,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("Global Economic Identity") !=
+               std::string::npos);
+        assert(std::string(game_output).find("Connected economies: **") !=
+               std::string::npos);
+
+        assert(game_action("103", "400", "government", "tariff 7", 10000003,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("7%") != std::string::npos);
+        assert(game_action("103", "400", "government", "treaty 110", 10000003,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("bilateral trade agreement") !=
+               std::string::npos);
+
+        // Education and licenses earned locally become part of the same
+        // cross-server identity on the player's next visit.
+        assert(get_player("111", "800", &target_fx_before) == ECONOMY_OK);
+        assert(game_action("111", "800", "profile", "global", 10000004,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("Psychology") != std::string::npos);
+        assert(game_action("111", "800", "profile", "", 10000005,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("Degree: **Psychology**") !=
+               std::string::npos);
+
+        // Serialized collectibles are globally visible and can be carried
+        // from their origin economy into another local market.
+        assert(get_player("110", "601", &target_fx_before) == ECONOMY_OK);
+        assert(game_action("110", "601", "collectible", "serials", 10000005,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        const std::string global_serials = game_output;
+        const size_t global_serial_marker = global_serials.find('#');
+        assert(global_serial_marker != std::string::npos);
+        const uint64_t global_serial = std::strtoull(
+            global_serials.c_str() + global_serial_marker + 1, nullptr, 10);
+        const std::string move_serial =
+            "move " + std::to_string(global_serial);
+        assert(game_action("110", "601", "collectible", move_serial.c_str(),
+                           10000006, game_output,
+                           sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("globally owned") ==
+               std::string::npos);
+        assert(std::string(game_output).find("this server's local market") !=
+               std::string::npos);
+
+        // International production reacts to tariffs and records trade flows.
+        assert(game_action("105", "700", "supply", "buy 2", 10000007,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(game_action("105", "700", "produce", "2", 10000008,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(game_action("105", "700", "business", "export 110 2", 10000009,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("Exported **2**") !=
+               std::string::npos);
+
+        // Behavior-derived cycles produce persistent local news, which can
+        // progress into the shared global feed.
+        assert(tick_all(10000000 + 72 * 3600) == ECONOMY_OK);
+        assert(game_action("110", "900", "news", "all",
+                           10000000 + 72 * 3600 + 1,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("Living Newswire") !=
+               std::string::npos);
+        assert(std::string(game_output).find("No matching events") ==
+               std::string::npos);
+        assert(game_action("110", "900", "economyinfo", "",
+                           10000000 + 72 * 3600 + 2,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("Currency index") !=
+               std::string::npos);
+        assert(std::string(game_output).find("Living Server Economy") !=
+               std::string::npos);
         shutdown();
+    }
+
+    {
+        std::ifstream migrated_database(database);
+        std::string magic;
+        unsigned format_version = 0;
+        assert(migrated_database >> magic >> format_version);
+        assert(magic == "ROUTINE_ECONOMY");
+        assert(format_version == 3);
     }
 
     // A truncated primary save must recover from the last complete atomic
@@ -555,7 +677,8 @@ int main(int argc, char** argv) {
         assert(std::string(profile).find("Equity") != std::string::npos);
         assert(game_action("104", "601", "collectible", "", 4086421,
                            profile, sizeof(profile)) == ECONOMY_OK);
-        assert(std::string(profile).find("Launch Relics:** 3") != std::string::npos);
+        assert(std::string(profile).find("local / global:** 2 / 3") !=
+               std::string::npos);
         assert(game_action("104", "601", "collectible", "serials", 4086422,
                            profile, sizeof(profile)) == ECONOMY_OK);
         assert(std::string(profile).find("Serialized Launch Relics") != std::string::npos);

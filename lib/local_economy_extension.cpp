@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <sstream>
 #include <limits>
@@ -326,6 +327,60 @@ struct ScheduledAgreement {
     bool active = false;
 };
 
+struct GlobalPlayer {
+    uint32_t education_mask = 0;
+    uint32_t licenses = 0;
+    uint64_t achievements = 0;
+    int32_t reputation = 50;
+    uint64_t lifetime_actions = 0;
+    uint64_t lifetime_trade_cents = 0;
+    uint64_t lifetime_forex_cents = 0;
+    int64_t first_seen_unix = 0;
+    int64_t last_seen_unix = 0;
+};
+
+struct GuildDynamics {
+    int64_t last_cycle_unix = 0;
+    int64_t spending_cents = 0;
+    int64_t investment_cents = 0;
+    int64_t saving_cents = 0;
+    int64_t selling_cents = 0;
+    int64_t capital_inflow_cents = 0;
+    int64_t capital_outflow_cents = 0;
+    int64_t exports_cents = 0;
+    int64_t imports_cents = 0;
+    int64_t government_debt_cents = 0;
+    int64_t forex_volume_cents = 0;
+    int64_t last_stimulus_unix = 0;
+    int32_t policy_rate_bp = 400;
+    int32_t currency_index = 10000;
+    int32_t trend = 0;
+    uint32_t hires = 0;
+    uint32_t layoffs = 0;
+    uint32_t recession_hours = 0;
+    uint32_t recovery_hours = 0;
+    uint32_t personality = 0;
+    uint64_t last_global_event_id = 0;
+    int32_t tariff_basis_points = 200;
+    std::string trade_partner;
+    std::array<int32_t, kStockCount> expectations{};
+    std::array<int64_t, kStockCount> rumor_due{};
+};
+
+struct NewsEvent {
+    uint64_t id = 0;
+    std::string origin_guild;
+    int64_t created_unix = 0;
+    int64_t evolves_unix = 0;
+    int32_t company = -1;
+    int32_t impact = 0;
+    uint32_t rarity = 0;
+    uint32_t stage = 0;
+    bool global = false;
+    bool positive = true;
+    std::string headline;
+};
+
 const ExtensionKernelBridge* g_kernel = nullptr;
 std::mutex g_mutex;
 std::unordered_map<std::string, Player> g_players;
@@ -354,6 +409,9 @@ std::vector<PlayerHistoryPoint> g_player_history;
 std::unordered_map<std::string, GuildBankNetwork> g_bank_networks;
 std::unordered_map<std::string, SecurityProfile> g_security;
 std::vector<ScheduledAgreement> g_agreements;
+std::unordered_map<std::string, GlobalPlayer> g_global_players;
+std::unordered_map<std::string, GuildDynamics> g_dynamics;
+std::vector<NewsEvent> g_news;
 uint64_t g_next_contract_id = 1;
 uint64_t g_next_order_id = 1;
 uint64_t g_next_property_id = 1;
@@ -361,6 +419,7 @@ uint64_t g_next_auction_id = 1;
 uint64_t g_next_partnership_id = 1;
 uint64_t g_next_collectible_serial = 1;
 uint64_t g_next_agreement_id = 1;
+uint64_t g_next_news_id = 1;
 std::mt19937_64 g_rng{std::random_device{}()};
 bool g_loaded = false;
 thread_local std::string g_display_symbol = "$";
@@ -368,6 +427,8 @@ thread_local std::string g_display_symbol = "$";
 constexpr int64_t kDailyCooldown = 24 * 60 * 60;
 constexpr int64_t kWorkCooldown = 60 * 60;
 constexpr int64_t kMaximumTransaction = 100000000000000LL;
+
+void add_bounded(int64_t& target, int64_t amount);
 
 std::string key_for(const std::string& guild_id, const std::string& user_id) {
     return guild_id + '\x1f' + user_id;
@@ -417,7 +478,7 @@ bool complete_database_file(const fs::path& path) {
     std::string magic;
     unsigned version = 0;
     if (!(input >> magic >> version) || magic != "ROUTINE_ECONOMY" ||
-        (version != 1 && version != 2)) return false;
+        (version != 1 && version != 2 && version != 3)) return false;
     if (version == 1) return true;
     std::string token;
     std::string last;
@@ -435,7 +496,9 @@ bool state_invariants_hold() {
         g_agreements.size() > kMaximumOpenRecords ||
         g_properties.size() > kMaximumOpenRecords ||
         g_collectible_assets.size() > 1000000 ||
-        g_player_history.size() > 100000) {
+        g_player_history.size() > 100000 ||
+        g_global_players.size() > kMaximumPlayers ||
+        g_news.size() > 1000) {
         return false;
     }
     for (const auto& entry : g_players) {
@@ -465,6 +528,15 @@ bool state_invariants_hold() {
             return false;
         }
     }
+    for (const auto& entry : g_dynamics) {
+        const GuildDynamics& dynamics = entry.second;
+        if (dynamics.policy_rate_bp < 0 || dynamics.policy_rate_bp > 5000 ||
+            dynamics.currency_index < 1000 || dynamics.currency_index > 50000 ||
+            dynamics.tariff_basis_points < 0 ||
+            dynamics.tariff_basis_points > 2500) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -485,7 +557,7 @@ bool save_locked() {
     std::ofstream output(temporary, std::ios::trunc);
     if (!output) return false;
 
-    output << "ROUTINE_ECONOMY 2\n";
+    output << "ROUTINE_ECONOMY 3\n";
     for (const auto& entry : g_players) {
         const size_t split = entry.first.find('\x1f');
         if (split == std::string::npos) continue;
@@ -736,6 +808,54 @@ bool save_locked() {
                << agreement.next_payment_unix << ' '
                << agreement.accepted << ' ' << agreement.active << '\n';
     }
+    for (const auto& entry : g_global_players) {
+        const GlobalPlayer& player = entry.second;
+        output << "GP " << std::quoted(entry.first) << ' '
+               << player.education_mask << ' ' << player.licenses << ' '
+               << player.achievements << ' ' << player.reputation << ' '
+               << player.lifetime_actions << ' '
+               << player.lifetime_trade_cents << ' '
+               << player.lifetime_forex_cents << ' '
+               << player.first_seen_unix << ' ' << player.last_seen_unix << '\n';
+    }
+    for (const auto& entry : g_dynamics) {
+        const GuildDynamics& dynamics = entry.second;
+        output << "M " << std::quoted(entry.first) << ' '
+               << dynamics.last_cycle_unix << ' '
+               << dynamics.spending_cents << ' '
+               << dynamics.investment_cents << ' '
+               << dynamics.saving_cents << ' '
+               << dynamics.selling_cents << ' '
+               << dynamics.capital_inflow_cents << ' '
+               << dynamics.capital_outflow_cents << ' '
+               << dynamics.exports_cents << ' '
+               << dynamics.imports_cents << ' '
+               << dynamics.government_debt_cents << ' '
+               << dynamics.forex_volume_cents << ' '
+               << dynamics.last_stimulus_unix << ' '
+               << dynamics.policy_rate_bp << ' '
+               << dynamics.currency_index << ' '
+               << dynamics.trend << ' '
+               << dynamics.hires << ' ' << dynamics.layoffs << ' '
+               << dynamics.recession_hours << ' '
+               << dynamics.recovery_hours << ' '
+               << dynamics.personality << ' '
+               << dynamics.last_global_event_id << ' '
+               << dynamics.tariff_basis_points << ' '
+               << std::quoted(dynamics.trade_partner);
+        for (int32_t value : dynamics.expectations) output << ' ' << value;
+        for (int64_t value : dynamics.rumor_due) output << ' ' << value;
+        output << '\n';
+    }
+    for (const NewsEvent& event : g_news) {
+        output << "NE " << event.id << ' '
+               << std::quoted(event.origin_guild) << ' '
+               << event.created_unix << ' ' << event.evolves_unix << ' '
+               << event.company << ' ' << event.impact << ' '
+               << event.rarity << ' ' << event.stage << ' '
+               << event.global << ' ' << event.positive << ' '
+               << std::quoted(event.headline) << '\n';
+    }
     output << "END\n";
     output.flush();
     if (!output) return false;
@@ -792,7 +912,7 @@ void load_locked() {
     std::string magic;
     unsigned version = 0;
     if (!(input >> magic >> version) || magic != "ROUTINE_ECONOMY" ||
-        (version != 1 && version != 2)) {
+        (version != 1 && version != 2 && version != 3)) {
         log_message("[ECONOMY] Ignoring unsupported or corrupt data file");
         return;
     }
@@ -1183,6 +1303,76 @@ void load_locked() {
             }
             continue;
         }
+        if (record == "GP") {
+            std::string user;
+            GlobalPlayer player;
+            if (!(input >> std::quoted(user)
+                  >> player.education_mask >> player.licenses
+                  >> player.achievements >> player.reputation
+                  >> player.lifetime_actions >> player.lifetime_trade_cents
+                  >> player.lifetime_forex_cents
+                  >> player.first_seen_unix >> player.last_seen_unix)) break;
+            player.reputation = std::clamp(player.reputation, 0, 100);
+            if (!user.empty()) g_global_players[user] = player;
+            continue;
+        }
+        if (record == "M") {
+            std::string guild;
+            GuildDynamics dynamics;
+            if (!(input >> std::quoted(guild)
+                  >> dynamics.last_cycle_unix
+                  >> dynamics.spending_cents
+                  >> dynamics.investment_cents
+                  >> dynamics.saving_cents
+                  >> dynamics.selling_cents
+                  >> dynamics.capital_inflow_cents
+                  >> dynamics.capital_outflow_cents
+                  >> dynamics.exports_cents >> dynamics.imports_cents
+                  >> dynamics.government_debt_cents
+                  >> dynamics.forex_volume_cents
+                  >> dynamics.last_stimulus_unix
+                  >> dynamics.policy_rate_bp
+                  >> dynamics.currency_index >> dynamics.trend
+                  >> dynamics.hires >> dynamics.layoffs
+                  >> dynamics.recession_hours
+                  >> dynamics.recovery_hours
+                  >> dynamics.personality
+                  >> dynamics.last_global_event_id
+                  >> dynamics.tariff_basis_points
+                  >> std::quoted(dynamics.trade_partner))) break;
+            bool failed = false;
+            for (int32_t& value : dynamics.expectations) {
+                if (!(input >> value)) { failed = true; break; }
+            }
+            if (failed) break;
+            for (int64_t& value : dynamics.rumor_due) {
+                if (!(input >> value)) { failed = true; break; }
+            }
+            if (failed) break;
+            dynamics.policy_rate_bp =
+                std::clamp(dynamics.policy_rate_bp, 0, 5000);
+            dynamics.currency_index =
+                std::clamp(dynamics.currency_index, 1000, 50000);
+            dynamics.tariff_basis_points =
+                std::clamp(dynamics.tariff_basis_points, 0, 2500);
+            if (!guild.empty()) g_dynamics[guild] = dynamics;
+            continue;
+        }
+        if (record == "NE") {
+            NewsEvent event;
+            if (!(input >> event.id >> std::quoted(event.origin_guild)
+                  >> event.created_unix >> event.evolves_unix
+                  >> event.company >> event.impact
+                  >> event.rarity >> event.stage
+                  >> event.global >> event.positive
+                  >> std::quoted(event.headline))) break;
+            if (!event.origin_guild.empty() && event.company < int(kStockCount) &&
+                event.rarity <= 3) {
+                g_news.push_back(event);
+                g_next_news_id = std::max(g_next_news_id, event.id + 1);
+            }
+            continue;
+        }
         if (record != "P") {
             input.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
             continue;
@@ -1257,6 +1447,8 @@ int claim_impl(const char* guild_id, const char* user_id, int64_t now,
     const bool is_new = g_players.find(key) == g_players.end();
     Player& player = ensure_player(guild_id, user_id);
     const Player before = player;
+    GuildDynamics& dynamics = g_dynamics[guild_id];
+    const GuildDynamics dynamics_before = dynamics;
     const bool chaos_is_new = g_chaos_players.find(key) == g_chaos_players.end();
     ChaosPlayer& chaos = g_chaos_players[key];
     const ChaosPlayer chaos_before = chaos;
@@ -1348,6 +1540,11 @@ int claim_impl(const char* guild_id, const char* user_id, int64_t now,
         }
         if (chaos.job_tier) chaos.credit_score = std::min(850, chaos.credit_score + 1);
     }
+    if (!daily && chaos_before.job_tier == 0 && chaos.job_tier > 0) {
+        ++dynamics.hires;
+    } else if (!daily && chaos_before.job_tier > 0 && chaos.job_tier == 0) {
+        ++dynamics.layoffs;
+    }
     if (save_locked()) return ECONOMY_OK;
     if (is_new) {
         g_players.erase(key);
@@ -1369,6 +1566,7 @@ int claim_impl(const char* guild_id, const char* user_id, int64_t now,
     } else {
         g_lifecycle[key] = lifecycle_before;
     }
+    g_dynamics[guild_id] = dynamics_before;
     return ECONOMY_STORAGE_ERROR;
 }
 
@@ -1395,6 +1593,8 @@ int economy_move_money_impl(const char* guild_id, const char* user_id,
     const bool is_new = g_players.find(key) == g_players.end();
     Player& player = ensure_player(guild_id, user_id);
     const Player before = player;
+    GuildDynamics& dynamics = g_dynamics[guild_id];
+    const GuildDynamics dynamics_before = dynamics;
     int64_t& source = deposit ? player.wallet_cents : player.checking_cents;
     int64_t& destination = deposit ? player.checking_cents : player.wallet_cents;
     if (source < amount) {
@@ -1403,12 +1603,14 @@ int economy_move_money_impl(const char* guild_id, const char* user_id,
     }
     source -= amount;
     destination += amount;
+    if (deposit) add_bounded(dynamics.saving_cents, amount / 4);
     if (save_locked()) return ECONOMY_OK;
     if (is_new) {
         g_players.erase(key);
     } else {
         g_players[key] = before;
     }
+    g_dynamics[guild_id] = dynamics_before;
     return ECONOMY_STORAGE_ERROR;
 }
 
@@ -1446,8 +1648,18 @@ int economy_transfer_impl(const char* guild_id, const char* from_user,
     }
     const Player sender_before = sender;
     const Player recipient_before = recipient;
+    GuildDynamics& dynamics = g_dynamics[guild_id];
+    const GuildDynamics dynamics_before = dynamics;
+    const bool global_was_new =
+        g_global_players.find(from_user) == g_global_players.end();
+    const GlobalPlayer global_before = global_was_new
+        ? GlobalPlayer{} : g_global_players.at(from_user);
     sender.wallet_cents -= amount;
     recipient.wallet_cents += amount;
+    add_bounded(dynamics.spending_cents, amount);
+    GlobalPlayer& global = g_global_players[from_user];
+    global.lifetime_trade_cents += static_cast<uint64_t>(amount);
+    ++global.lifetime_actions;
     if (save_locked()) return ECONOMY_OK;
     if (sender_is_new) {
         g_players.erase(sender_key);
@@ -1459,6 +1671,9 @@ int economy_transfer_impl(const char* guild_id, const char* from_user,
     } else {
         g_players[recipient_key] = recipient_before;
     }
+    g_dynamics[guild_id] = dynamics_before;
+    if (global_was_new) g_global_players.erase(from_user);
+    else g_global_players[from_user] = global_before;
     return ECONOMY_STORAGE_ERROR;
 }
 
@@ -1484,14 +1699,18 @@ int economy_buy_item_impl(const char* guild_id, const char* user_id,
         return ECONOMY_INVALID_ARGUMENT;
     }
     const Player before = player;
+    GuildDynamics& dynamics = g_dynamics[guild_id];
+    const GuildDynamics dynamics_before = dynamics;
     player.wallet_cents -= total;
     player.items[item_index] += quantity;
+    add_bounded(dynamics.spending_cents, total);
     if (save_locked()) return ECONOMY_OK;
     if (is_new) {
         g_players.erase(key);
     } else {
         g_players[key] = before;
     }
+    g_dynamics[guild_id] = dynamics_before;
     return ECONOMY_STORAGE_ERROR;
 }
 
@@ -1558,6 +1777,29 @@ int economy_flush_impl() {
 constexpr std::array<const char*, kStockCount> kTickers = {
     "MEOW", "RAT", "YUM", "INT", "ENRN", "LPE", "SKIB", "BOOG", "DOGM"
 };
+constexpr std::array<const char*, kStockCount> kCompanyNames = {
+    "MEOW", "Rat Mining", "Yummy Burger", "Intelligent", "Enron",
+    "Lobster Power & Electric", "Skibidi Steel", "Boogle",
+    "Dogecoin Mines"
+};
+constexpr std::array<const char*, kStockCount> kCompanyPersonalities = {
+    "consumer electronics; announcement-sensitive",
+    "mining and raw materials; discovery-driven",
+    "food service; consumer-spending sensitive",
+    "enterprise technology; stable with breakthrough risk",
+    "extremely volatile; every filing causes concern",
+    "regulated energy; rate and infrastructure sensitive",
+    "manufacturing; construction-cycle sensitive",
+    "internet technology; growth-expectation sensitive",
+    "meme extraction; speculation is the business model"
+};
+constexpr std::array<const char*, 4> kEconomyPersonalities = {
+    "Stable Economy", "High-Growth Economy",
+    "Financial Hub", "Chaotic Economy"
+};
+constexpr std::array<const char*, 4> kNewsRarity = {
+    "COMMON", "UNCOMMON", "RARE", "LEGENDARY"
+};
 constexpr std::array<const char*, 5> kJobs = {
     "Unemployed", "Fast-food Survivor", "Skilled Technician",
     "Financial Analyst", "Unaccountably Powerful Executive"
@@ -1605,6 +1847,308 @@ constexpr std::array<int64_t, 6> kIndustrySalePrice = {
     0, 4800, 11000, 18000, 7600, 6000
 };
 
+int32_t highest_education(uint32_t mask) {
+    for (int32_t degree = 9; degree >= 1; --degree) {
+        if (mask & (1u << degree)) return degree;
+    }
+    return 0;
+}
+
+uint32_t achievement_count(uint64_t mask) {
+    uint32_t count = 0;
+    while (mask) {
+        count += static_cast<uint32_t>(mask & 1u);
+        mask >>= 1;
+    }
+    return count;
+}
+
+size_t player_server_count(const std::string& user_id) {
+    size_t count = 0;
+    const std::string suffix = std::string(1, '\x1f') + user_id;
+    for (const auto& entry : g_players) {
+        if (entry.first.size() >= suffix.size() &&
+            entry.first.compare(entry.first.size() - suffix.size(),
+                                suffix.size(), suffix) == 0) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+size_t global_collectible_count(const std::string& user_id) {
+    return static_cast<size_t>(std::count_if(
+        g_collectible_assets.begin(), g_collectible_assets.end(),
+        [&](const CollectibleAsset& collectible) {
+            return collectible.owner_id == user_id;
+        }));
+}
+
+GlobalPlayer& sync_global_player(const std::string& user_id,
+                                 ChaosPlayer& local,
+                                 PlayerDevelopment& development,
+                                 int64_t now) {
+    GlobalPlayer& global = g_global_players[user_id];
+    if (!global.first_seen_unix) global.first_seen_unix = now;
+    global.last_seen_unix = std::max(global.last_seen_unix, now);
+    if (local.degree > 0 && local.degree <= 9) {
+        global.education_mask |= 1u << local.degree;
+    }
+    global.licenses |= development.certifications;
+    local.degree = std::max<uint32_t>(
+        local.degree, static_cast<uint32_t>(
+            highest_education(global.education_mask)));
+    development.certifications |= global.licenses;
+    return global;
+}
+
+void add_bounded(int64_t& target, int64_t amount) {
+    if (amount <= 0) return;
+    target = std::min<int64_t>(
+        kMaximumTransaction,
+        target > kMaximumTransaction - amount
+            ? kMaximumTransaction : target + amount);
+}
+
+std::string event_headline(size_t company, bool positive, uint32_t rarity,
+                           uint32_t stage) {
+    const std::string name = kCompanyNames[company % kStockCount];
+    if (stage == 0) {
+        if (company == 0) {
+            return positive
+                ? "Rumor: MEOW is preparing a major consumer-tech announcement."
+                : "MEOW suppliers warn that its secret project may be slipping.";
+        }
+        if (company == 1) {
+            return positive
+                ? "Rat Mining survey crews report unusually shiny core samples."
+                : "Rat Mining warns that a major shaft needs emergency repairs.";
+        }
+        if (company == 2) {
+            return positive
+                ? "Yummy Burger reports packed dining rooms and suspiciously happy franchisees."
+                : "Food inflation squeezes Yummy Burger margins.";
+        }
+        if (company == 3) {
+            return positive
+                ? "Intelligent researchers hint at an enterprise-computing breakthrough."
+                : "Intelligent delays a closely watched platform rollout.";
+        }
+        if (company == 4) {
+            return positive
+                ? "Enron files an earnings report containing several positive numbers."
+                : "Enron executives schedule an emergency call, which feels traditional.";
+        }
+        return positive
+            ? name + " reports stronger demand and expanding production."
+            : name + " warns of weaker orders and rising costs.";
+    }
+    if (rarity >= 3 && positive) {
+        return name + " delivers a generation-defining breakthrough; world markets reprice.";
+    }
+    return positive
+        ? name + " confirms the rumors with a stronger-than-expected announcement."
+        : name + " disappoints speculators; the crowded trade unwinds violently.";
+}
+
+void apply_news_impact(const std::string& guild_id, const NewsEvent& event,
+                       GuildEconomy& economy, GuildExchange& exchange) {
+    if (event.company >= 0 && event.company < int(kStockCount)) {
+        const size_t company = static_cast<size_t>(event.company);
+        exchange.sentiment[company] = std::clamp(
+            exchange.sentiment[company] + event.impact, 0, 100);
+        economy.prices[company] = std::clamp<int64_t>(
+            economy.prices[company] +
+                economy.prices[company] * event.impact / 250,
+            50, 1000000000);
+    }
+    economy.confidence = std::clamp(
+        economy.confidence + event.impact / 5, 10, 90);
+    (void)guild_id;
+}
+
+void create_news_event(const std::string& guild_id, int64_t now,
+                       size_t company, bool positive, uint32_t rarity,
+                       GuildEconomy& economy, GuildExchange& exchange) {
+    NewsEvent event;
+    event.id = g_next_news_id++;
+    event.origin_guild = guild_id;
+    event.created_unix = now;
+    event.evolves_unix = now + (rarity >= 2 ? 6 : 12) * 3600;
+    event.company = static_cast<int32_t>(company % kStockCount);
+    event.rarity = std::min<uint32_t>(3, rarity);
+    event.positive = positive;
+    event.impact = (positive ? 1 : -1) *
+        static_cast<int32_t>(4 + event.rarity * 3);
+    event.headline = event_headline(company, positive, event.rarity, 0);
+    apply_news_impact(guild_id, event, economy, exchange);
+    g_news.push_back(std::move(event));
+    if (g_news.size() > 200) {
+        g_news.erase(g_news.begin(), g_news.begin() + (g_news.size() - 200));
+    }
+}
+
+void update_economic_dynamics(const std::string& guild_id,
+                              GuildEconomy& economy,
+                              GuildExchange& exchange,
+                              int64_t step_time) {
+    GuildDynamics& dynamics = g_dynamics[guild_id];
+    GovernmentState& government = g_governments[guild_id];
+    if (!dynamics.last_cycle_unix) dynamics.last_cycle_unix = step_time - 3600;
+
+    const int64_t demand = dynamics.spending_cents / 100000 +
+        dynamics.investment_cents / 150000 +
+        static_cast<int64_t>(dynamics.hires) * 2 -
+        dynamics.saving_cents / 180000 -
+        dynamics.selling_cents / 150000 +
+        (dynamics.capital_inflow_cents - dynamics.capital_outflow_cents) / 200000 +
+        (dynamics.exports_cents - dynamics.imports_cents) / 250000 -
+        static_cast<int64_t>(dynamics.layoffs) * 3;
+    dynamics.trend = static_cast<int32_t>(
+        std::clamp<int64_t>(demand, -25, 25));
+
+    economy.confidence = std::clamp(
+        economy.confidence + dynamics.trend / 3, 10, 90);
+    economy.inflation_bp = std::clamp(
+        economy.inflation_bp +
+            static_cast<int32_t>(std::clamp<int64_t>(
+                dynamics.spending_cents / 300000 +
+                dynamics.capital_outflow_cents / 500000 -
+                dynamics.saving_cents / 450000 -
+                (dynamics.policy_rate_bp - 400) / 80,
+                -80, 120)),
+        -100, 1800);
+    economy.unemployment_bp = std::clamp(
+        economy.unemployment_bp -
+            static_cast<int32_t>(std::min<uint32_t>(100, dynamics.hires * 12)) +
+            static_cast<int32_t>(std::min<uint32_t>(150, dynamics.layoffs * 18)) -
+            dynamics.trend * 2,
+        150, 3000);
+
+    if (economy.inflation_bp > 650) {
+        dynamics.policy_rate_bp =
+            std::min(2000, dynamics.policy_rate_bp + 25);
+    } else if (economy.confidence < 38 || economy.unemployment_bp > 1000) {
+        dynamics.policy_rate_bp =
+            std::max(50, dynamics.policy_rate_bp - 25);
+    } else if (dynamics.policy_rate_bp > 400) {
+        dynamics.policy_rate_bp -= 10;
+    } else if (dynamics.policy_rate_bp < 400) {
+        dynamics.policy_rate_bp += 10;
+    }
+
+    const int64_t external_balance =
+        dynamics.capital_inflow_cents + dynamics.exports_cents -
+        dynamics.capital_outflow_cents - dynamics.imports_cents;
+    dynamics.currency_index = std::clamp(
+        dynamics.currency_index +
+            (economy.confidence - 50) * 2 -
+            economy.inflation_bp / 80 +
+            static_cast<int32_t>(
+                std::clamp<int64_t>(external_balance / 250000, -100, 100)),
+        1000, 50000);
+
+    const bool recession = economy.confidence < 35 ||
+                           economy.unemployment_bp > 1200 ||
+                           dynamics.trend <= -10;
+    if (recession) {
+        ++dynamics.recession_hours;
+        dynamics.recovery_hours = 0;
+    } else if (dynamics.recession_hours) {
+        ++dynamics.recovery_hours;
+        if (dynamics.recovery_hours >= 6) {
+            dynamics.recession_hours = 0;
+            dynamics.recovery_hours = 0;
+        }
+    }
+
+    if (dynamics.recession_hours >= 12 &&
+        step_time - dynamics.last_stimulus_unix >= 24 * 3600) {
+        const int64_t stimulus = 50000;
+        if (government.treasury_cents < stimulus) {
+            const int64_t issuance = stimulus - government.treasury_cents;
+            government.treasury_cents += issuance;
+            dynamics.government_debt_cents += issuance;
+        }
+        government.treasury_cents -= stimulus;
+        economy.confidence = std::min(90, economy.confidence + 4);
+        economy.unemployment_bp = std::max(150, economy.unemployment_bp - 100);
+        dynamics.spending_cents += stimulus;
+        dynamics.last_stimulus_unix = step_time;
+    }
+
+    if (dynamics.forex_volume_cents > 500000 ||
+        dynamics.currency_index > 12500) {
+        dynamics.personality = 2;
+    } else if (economy.confidence > 68 &&
+               economy.unemployment_bp < 600) {
+        dynamics.personality = 1;
+    } else if (std::abs(dynamics.trend) >= 12 ||
+               economy.inflation_bp > 900) {
+        dynamics.personality = 3;
+    } else {
+        dynamics.personality = 0;
+    }
+
+    for (const NewsEvent& event : g_news) {
+        if (!event.global || event.id <= dynamics.last_global_event_id) continue;
+        apply_news_impact(guild_id, event, economy, exchange);
+        dynamics.last_global_event_id =
+            std::max(dynamics.last_global_event_id, event.id);
+    }
+    for (NewsEvent& event : g_news) {
+        if (event.origin_guild != guild_id || event.stage != 0 ||
+            event.evolves_unix > step_time) continue;
+        event.stage = 1;
+        const size_t company = static_cast<size_t>(
+            std::max<int32_t>(0, event.company));
+        const bool fulfilled = exchange.profit[company] >= 0
+            ? event.positive : !event.positive;
+        event.positive = fulfilled;
+        event.impact = (fulfilled ? 1 : -1) *
+            static_cast<int32_t>(7 + event.rarity * 4);
+        event.headline =
+            event_headline(company, fulfilled, event.rarity, 1);
+        if (event.rarity >= 2 && fulfilled) {
+            event.global = true;
+            dynamics.last_global_event_id =
+                std::max(dynamics.last_global_event_id, event.id);
+        }
+        apply_news_impact(guild_id, event, economy, exchange);
+    }
+
+    const uint64_t hour = static_cast<uint64_t>(step_time / 3600);
+    if ((hour + std::hash<std::string>{}(guild_id)) % 6 == 0) {
+        const size_t company = static_cast<size_t>(
+            (hour + std::hash<std::string>{}(guild_id)) % kStockCount);
+        const bool positive = dynamics.trend > 0 ||
+            (dynamics.trend == 0 && hour % 2 == 0);
+        const uint32_t rarity = static_cast<uint32_t>(
+            std::abs(dynamics.trend) >= 20 ? 3 :
+            std::abs(dynamics.trend) >= 12 ? 2 :
+            std::abs(dynamics.trend) >= 6 ? 1 : 0);
+        create_news_event(guild_id, step_time, company, positive, rarity,
+                          economy, exchange);
+        dynamics.expectations[company] =
+            positive ? 8 + int(rarity) * 4 : -8 - int(rarity) * 4;
+        dynamics.rumor_due[company] =
+            step_time + (rarity >= 2 ? 6 : 12) * 3600;
+    }
+
+    dynamics.spending_cents /= 4;
+    dynamics.investment_cents /= 4;
+    dynamics.saving_cents /= 4;
+    dynamics.selling_cents /= 4;
+    dynamics.capital_inflow_cents /= 4;
+    dynamics.capital_outflow_cents /= 4;
+    dynamics.exports_cents /= 4;
+    dynamics.imports_cents /= 4;
+    dynamics.forex_volume_cents /= 2;
+    dynamics.hires /= 2;
+    dynamics.layoffs /= 2;
+    dynamics.last_cycle_unix = step_time;
+}
+
 std::string cash(int64_t cents) {
     const bool negative = cents < 0;
     const uint64_t value = negative
@@ -1615,6 +2159,14 @@ std::string cash(int64_t cents) {
     out << g_display_symbol << value / 100 << '.' << std::setw(2)
         << std::setfill('0') << value % 100;
     return out.str();
+}
+
+std::string currency_amount(int64_t cents, const std::string& symbol) {
+    const std::string previous = g_display_symbol;
+    g_display_symbol = symbol;
+    const std::string result = cash(cents);
+    g_display_symbol = previous;
+    return result;
 }
 
 bool parse_cash(std::string value, int64_t& cents) {
@@ -2029,6 +2581,7 @@ void update_market(const std::string& guild_id, GuildEconomy& guild, int64_t now
                     std::max<int64_t>(50, guild.prices[i]), -45, 45));
             pressure += (exchange.sentiment[i] - 50) / 3;
             pressure += sector_bias / 2;
+            pressure += g_dynamics[guild_id].expectations[i];
             pressure += noise(g_rng) * kStockVolatility[i] / 100;
             if (i == 4 && noise(g_rng) > 96) pressure -= 240;
             if (i == 8 && noise(g_rng) > 75) pressure += noise(g_rng) / 2;
@@ -2076,12 +2629,14 @@ void update_market(const std::string& guild_id, GuildEconomy& guild, int64_t now
                 apply_stock_split(guild_id, i, guild, exchange);
             }
         }
-        guild.confidence = std::clamp(guild.confidence + noise(g_rng) / 30, 10, 90);
-        guild.inflation_bp = std::clamp(guild.inflation_bp + noise(g_rng) / 20, -100, 1800);
-        guild.unemployment_bp = std::clamp(
-            guild.unemployment_bp - (guild.confidence - 50) / 20 + noise(g_rng) / 30,
-            150, 3000);
-        if (noise(g_rng) > 92) guild.event_id = (guild.event_id + 1) % 8;
+        update_economic_dynamics(guild_id, guild, exchange, step_time);
+        for (int32_t& expectation : g_dynamics[guild_id].expectations) {
+            expectation = expectation * 3 / 4;
+        }
+        guild.confidence = std::clamp(
+            guild.confidence + noise(g_rng) / 80, 10, 90);
+        guild.event_id = g_news.empty()
+            ? guild.event_id : static_cast<uint32_t>(g_news.back().id);
     }
     guild.last_market_unix += steps * 3600;
 }
@@ -2857,6 +3412,13 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
     GuildBankNetwork& bank_network = g_bank_networks[guild_id];
     BusinessProfile& business = g_business_profiles[key];
     PlayerDevelopment& development = g_development[key];
+    const bool global_player_was_new =
+        g_global_players.find(user_id) == g_global_players.end();
+    const GlobalPlayer global_before = global_player_was_new
+        ? GlobalPlayer{} : g_global_players.at(user_id);
+    GlobalPlayer& global =
+        sync_global_player(user_id, player, development, now);
+    GuildDynamics& dynamics = g_dynamics[guild_id];
     const Player wallet_before = wallet;
     const ChaosPlayer player_before = player;
     const AdvancedPlayer advanced_before = advanced;
@@ -2871,6 +3433,9 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
     const BusinessProfile business_before = business;
     const PlayerDevelopment development_before = development;
     const SecurityProfile security_before = security;
+    const GuildDynamics dynamics_before = dynamics;
+    const std::vector<NewsEvent> news_before = g_news;
+    const uint64_t next_news_before = g_next_news_id;
     const std::vector<PlayerContract> contracts_before = g_contracts;
     const std::vector<LimitOrder> orders_before = g_orders;
     const std::vector<AuditEntry> audit_before = g_audit;
@@ -2886,6 +3451,15 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
     const uint64_t next_collectible_before = g_next_collectible_serial;
     const std::vector<ScheduledAgreement> agreements_before = g_agreements;
     const uint64_t next_agreement_before = g_next_agreement_id;
+    std::string cross_target_key;
+    Player cross_target_before;
+    bool cross_target_changed = false;
+    std::string cross_target_guild;
+    GuildDynamics cross_target_dynamics_before;
+    bool cross_target_dynamics_changed = false;
+    std::string cross_advanced_key;
+    AdvancedPlayer cross_advanced_before;
+    bool cross_advanced_changed = false;
     update_market(guild_id, guild, now);
     process_orders(guild_id, guild, exchange, now);
     materialize_legacy_property(guild_id, user_id, player, now);
@@ -2990,7 +3564,132 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
         }
         if (!count) out << "No recorded advanced transactions yet.";
         message = out.str();
+    } else if (action == "forex") {
+        const std::string operation = input.empty() ? "markets" : input[0];
+        if (operation == "markets") {
+            std::ostringstream out;
+            out << "**Routine Foreign Exchange**\n";
+            size_t shown = 0;
+            for (const auto& entry : g_guilds) {
+                if (shown++ >= 10) break;
+                const GuildSettings& market_settings = g_settings[entry.first];
+                const GuildDynamics& market = g_dynamics[entry.first];
+                out << "`" << entry.first << "` • "
+                    << market_settings.currency_symbol << ' '
+                    << market_settings.currency_name << " • index **"
+                    << market.currency_index << "** • "
+                    << kEconomyPersonalities[
+                        std::min<uint32_t>(market.personality, 3)] << '\n';
+            }
+            if (!shown) out << "No connected currency markets yet.\n";
+            out << "\n`/forex input: quote <server_id> [amount]`\n"
+                   "`/forex input: exchange <server_id> <amount>`";
+            message = out.str();
+        } else if ((operation == "quote" || operation == "exchange") &&
+                   input.size() >= 2 && valid_id(input[1].c_str()) &&
+                   input[1] != guild_id) {
+            const std::string target_guild = input[1];
+            const std::string target_key = key_for(target_guild, user_id);
+            auto target_account = g_players.find(target_key);
+            int64_t amount = 10000;
+            if (input.size() > 2 && !parse_cash(input[2], amount)) {
+                message = "Amount must be positive, for example `250.00`.";
+                result = ECONOMY_INVALID_ARGUMENT;
+            } else if (target_account == g_players.end()) {
+                message = "Open your account in target server `" + target_guild +
+                    "` first by using any economy command there.";
+                result = ECONOMY_PLAYER_NOT_FOUND;
+            } else {
+                GuildDynamics& target_dynamics = g_dynamics[target_guild];
+                const GuildSettings& target_settings = g_settings[target_guild];
+                const int32_t source_index =
+                    std::max(1000, dynamics.currency_index);
+                const int32_t target_index =
+                    std::max(1000, target_dynamics.currency_index);
+                const int32_t spread_bp = std::clamp(
+                    125 + std::abs(source_index - target_index) / 100,
+                    125, 500);
+                const int64_t gross = static_cast<int64_t>(
+                    static_cast<long double>(amount) * source_index /
+                    target_index);
+                const int64_t received =
+                    std::max<int64_t>(1, gross * (10000 - spread_bp) / 10000);
+                const int64_t fee = std::max<int64_t>(0, gross - received);
+                if (operation == "quote") {
+                    message = "**Foreign-exchange quote**\n" +
+                        currency_amount(amount, settings.currency_symbol) +
+                        " → **" +
+                        currency_amount(received,
+                                        target_settings.currency_symbol) +
+                        "**\nRate index: **" +
+                        std::to_string(source_index) + " / " +
+                        std::to_string(target_index) +
+                        "** | spread: **" +
+                        std::to_string(spread_bp / 100.0) +
+                        "%** | embedded fee: **" +
+                        currency_amount(fee, target_settings.currency_symbol) +
+                        "**\nRates move with confidence, inflation, trade, and capital flow.";
+                } else if (target_account->second.wallet_cents >
+                           kMaximumTransaction - received) {
+                    message = "The target account cannot hold the converted amount.";
+                    result = ECONOMY_INVALID_ARGUMENT;
+                } else if (!need_cash(amount)) {
+                    result = ECONOMY_INSUFFICIENT_FUNDS;
+                } else {
+                    cross_target_key = target_key;
+                    cross_target_before = target_account->second;
+                    cross_target_changed = true;
+                    cross_target_guild = target_guild;
+                    cross_target_dynamics_before = target_dynamics;
+                    cross_target_dynamics_changed = true;
+                    wallet.wallet_cents -= amount;
+                    target_account->second.wallet_cents += received;
+                    add_bounded(dynamics.capital_outflow_cents, amount);
+                    add_bounded(target_dynamics.capital_inflow_cents, received);
+                    add_bounded(dynamics.forex_volume_cents, amount);
+                    add_bounded(target_dynamics.forex_volume_cents, received);
+                    global.lifetime_forex_cents += static_cast<uint64_t>(amount);
+                    global.reputation = std::min(100, global.reputation + 1);
+                    message = "Exchanged **" +
+                        currency_amount(amount, settings.currency_symbol) +
+                        "** into **" +
+                        currency_amount(received,
+                                        target_settings.currency_symbol) +
+                        "** in server `" + target_guild +
+                        "`. Capital now has somewhere else to panic.";
+                }
+            }
+        } else {
+            message = "Usage: `/forex input: <markets|quote server_id [amount]|"
+                      "exchange server_id amount>`";
+            result = ECONOMY_INVALID_ARGUMENT;
+        }
     } else if (action == "profile") {
+        if (!input.empty() && input[0] == "global") {
+            const size_t servers = player_server_count(user_id);
+            const size_t collectibles = global_collectible_count(user_id);
+            std::ostringstream out;
+            out << "**Global Economic Identity**\n"
+                << "Reputation: **" << global.reputation
+                << "/100** | Connected economies: **" << servers << "**\n"
+                << "Highest education: **"
+                << kDegrees[std::min<int32_t>(
+                    9, highest_education(global.education_mask))]
+                << "** | License mask: **0x" << std::hex << std::uppercase
+                << global.licenses << std::dec << "**\n"
+                << "Global collectibles: **" << collectibles
+                << "** | Achievements: **"
+                << achievement_count(global.achievements) << "**\n"
+                << "Lifetime actions: **" << global.lifetime_actions
+                << "** | Cross-server FX: **"
+                << currency_amount(
+                    static_cast<int64_t>(std::min<uint64_t>(
+                        global.lifetime_forex_cents,
+                        static_cast<uint64_t>(kMaximumTransaction))),
+                    settings.currency_symbol)
+                << "**\nYour local balances and assets remain unique to each server.";
+            message = out.str();
+        } else {
         const int64_t liquid = wallet.wallet_cents + wallet.checking_cents +
                                player.savings_cents + player.hysa_cents;
         const int64_t assets = portfolio_value(player, guild) +
@@ -3007,7 +3706,9 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
             "** | Degree: **" + kDegrees[std::min<uint32_t>(player.degree, 9)] +
             "**\nInvested assets: **" + cash(assets) + "**\nNet worth: **" +
             cash(liquid + assets - player.debt_cents) + "**\nBankruptcies: **" +
-            std::to_string(player.bankruptcies) + "**";
+            std::to_string(player.bankruptcies) +
+            "**\nGlobal identity: `/profile input: global`";
+        }
     } else if (action == "bank") {
         if (input.size() == 2 && input[0] == "select") {
             const int selected = std::atoi(input[1].c_str());
@@ -3463,7 +4164,9 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
                         std::numeric_limits<int64_t>::max() /
                         std::max<int64_t>(1, guild.prices[index]))));
             message = "**" + std::string(kTickers[index]) +
-                " Company Fundamentals**\nBid / ask: **" + cash(bid) + " / " +
+                " · " + kCompanyNames[index] +
+                "**\nPersonality: *" + kCompanyPersonalities[index] +
+                "*\nBid / ask: **" + cash(bid) + " / " +
                 cash(ask) + "** | Midpoint: **" + cash(guild.prices[index]) +
                 "**\nEstimated fundamental value: **" +
                 cash(stock_fundamental_value(exchange, index)) +
@@ -3480,7 +4183,10 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
                 "** | Hourly liquidity: **" +
                 std::to_string(exchange.liquidity[index]) +
                 "** | Distress: **" + std::to_string(exchange.distress[index]) +
-                "/24**\nStatus: **" +
+                "/24** | Expectations: **" +
+                (dynamics.expectations[index] >= 0 ? "+" : "") +
+                std::to_string(dynamics.expectations[index]) +
+                "**\nStatus: **" +
                 (!exchange.listed[index] ? "DELISTED / RESTRUCTURING" :
                  exchange.halted_until[index] > now ? "TRADING HALT" : "OPEN") + "**";
         }
@@ -3886,6 +4592,57 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
                     }
                 }
             }
+        } else if (operation == "export") {
+            const std::string target_guild =
+                input.size() > 1 ? input[1] : "";
+            const uint32_t quantity = input.size() > 2
+                ? static_cast<uint32_t>(
+                    std::strtoul(input[2].c_str(), nullptr, 10)) : 0;
+            if (!player.business_level || !valid_id(target_guild.c_str()) ||
+                target_guild == guild_id || !quantity || quantity > 1000 ||
+                business.finished_goods < quantity ||
+                g_guilds.find(target_guild) == g_guilds.end()) {
+                message = "Usage: `/business input: export <server_id> <1-1000>` "
+                          "with enough finished goods and a connected target economy.";
+                result = ECONOMY_INVALID_ARGUMENT;
+            } else {
+                GuildDynamics& target_dynamics = g_dynamics[target_guild];
+                const GuildEconomy& target_economy = g_guilds[target_guild];
+                cross_target_guild = target_guild;
+                cross_target_dynamics_before = target_dynamics;
+                cross_target_dynamics_changed = true;
+                const uint32_t industry =
+                    std::clamp<uint32_t>(business.industry, 1, 5);
+                const int32_t treaty_discount =
+                    dynamics.trade_partner == target_guild &&
+                    target_dynamics.trade_partner == guild_id ? 2 : 1;
+                const int32_t tariff = target_dynamics.tariff_basis_points /
+                    treaty_discount;
+                const int64_t gross =
+                    static_cast<int64_t>(quantity) *
+                    kIndustrySalePrice[industry] *
+                    std::clamp(target_economy.confidence, 20, 90) / 55;
+                const int64_t tariff_cost = gross * tariff / 10000;
+                const int64_t shipping = std::max<int64_t>(100, gross / 10);
+                const int64_t proceeds =
+                    std::max<int64_t>(0, gross - tariff_cost - shipping);
+                business.finished_goods -= quantity;
+                player.business_cash_cents += proceeds;
+                business.lifetime_revenue_cents += gross;
+                business.lifetime_profit_cents += proceeds;
+                add_bounded(dynamics.exports_cents, gross);
+                add_bounded(dynamics.capital_inflow_cents, proceeds);
+                add_bounded(target_dynamics.imports_cents, gross);
+                add_bounded(target_dynamics.capital_outflow_cents, proceeds);
+                global.lifetime_trade_cents += static_cast<uint64_t>(gross);
+                global.reputation = std::min(100, global.reputation + 1);
+                message = "Exported **" + std::to_string(quantity) +
+                    "** unit(s) to server `" + target_guild +
+                    "`.\nGross: **" + cash(gross) +
+                    "** | tariff: **" + cash(tariff_cost) +
+                    "** | shipping: **" + cash(shipping) +
+                    "** | proceeds: **" + cash(proceeds) + "**.";
+            }
         } else if (operation == "fund") {
             int64_t amount = 0;
             if (!player.business_level || !parse_amount(1, amount) || !need_cash(amount)) {
@@ -3938,7 +4695,9 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
                 "/100**\nLifetime revenue / profit: **" +
                 cash(business.lifetime_revenue_cents) + " / " +
                 cash(business.lifetime_profit_cents) +
-                "**\n`~business start [industry]` `~business <fund|operate|withdraw|upgrade>`";
+                "**\n`/business input: start [industry]` "
+                "`/business input: <fund|operate|withdraw|upgrade>`\n"
+                "`/business input: export <server_id> <quantity>`";
         }
     } else if (action == "supply") {
         const uint32_t quantity = input.size() > 1 && input[0] == "buy"
@@ -4274,25 +5033,59 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
             out << "**Serialized Launch Relics**\n";
             size_t count = 0;
             for (const CollectibleAsset& collectible : g_collectible_assets) {
-                if (collectible.guild_id != guild_id ||
-                    collectible.owner_id != user_id ||
+                if (collectible.owner_id != user_id ||
                     collectible.auction_id != 0 || count >= 12) continue;
                 ++count;
                 out << '#' << collectible.serial << " — "
                     << rarities[collectible.rarity] << " — "
-                    << collectible.transfers << " transfer(s)";
+                    << collectible.transfers << " transfer(s) — server `"
+                    << collectible.guild_id << '`';
                 if (!collectible.previous_owner_id.empty()) {
                     out << " — from <@" << collectible.previous_owner_id << '>';
                 }
                 out << '\n';
             }
             if (!count) out << "No unlisted serialized relics.\n";
-            out << "Use `~auction list relic ...` to transfer ownership.";
+            out << "Use `/collectible input: move <serial>` to carry one into "
+                   "this economy, or `/auction` to transfer ownership.";
             message = out.str();
+        } else if (operation == "move") {
+            const uint64_t serial = input.size() > 1
+                ? std::strtoull(input[1].c_str(), nullptr, 10) : 0;
+            auto collectible = std::find_if(
+                g_collectible_assets.begin(), g_collectible_assets.end(),
+                [&](const CollectibleAsset& candidate) {
+                    return candidate.serial == serial &&
+                           candidate.owner_id == user_id &&
+                           candidate.auction_id == 0;
+                });
+            if (collectible == g_collectible_assets.end()) {
+                message = "That globally owned, unlisted collectible was not found.";
+                result = ECONOMY_INVALID_ARGUMENT;
+            } else if (collectible->guild_id == guild_id) {
+                message = "That collectible is already present in this server economy.";
+            } else {
+                cross_advanced_key =
+                    key_for(collectible->guild_id, user_id);
+                AdvancedPlayer& origin =
+                    g_advanced_players[cross_advanced_key];
+                cross_advanced_before = origin;
+                cross_advanced_changed = true;
+                if (origin.collectibles) --origin.collectibles;
+                ++advanced.collectibles;
+                collectible->guild_id = guild_id;
+                collectible->acquired_unix = now;
+                message = "Moved global collectible **#" +
+                    std::to_string(serial) +
+                    "** into this server's local market.";
+            }
         } else {
-            message = "**Launch Relics:** " + std::to_string(advanced.collectibles) +
+            message = "**Launch Relics — local / global:** " +
+                std::to_string(advanced.collectibles) + " / " +
+                std::to_string(global_collectible_count(user_id)) +
                 " | Market price: **" + cash(unit_price) +
-                "**\n`~collectible <buy|sell> <quantity>` / `~collectible serials`";
+                "**\n`/collectible input: <buy|sell> <quantity>` · "
+                "`/collectible input: serials|move <serial>`";
             if (operation == "buy" || operation == "sell") result = ECONOMY_INVALID_ARGUMENT;
         }
     } else if (action == "insurance") {
@@ -4792,15 +5585,57 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
         static constexpr const char* platforms[] = {
             "Low Tax", "Public Welfare", "Pro-Business"
         };
-        message = "**Guild Government**\nMayor: " +
-            (government.mayor_id.empty() ? std::string("vacant")
-                                         : "<@" + government.mayor_id + ">") +
-            "\nPlatform: **" +
-            platforms[std::min<uint32_t>(government.platform, 2)] +
-            "** | Tax rate: **" + std::to_string(government.tax_basis_points / 100.0) +
-            "%**\nTreasury: **" + cash(government.treasury_cents) +
-            "** | Welfare payment: **" + cash(government.welfare_cents) +
-            "**\n`~election` · `~taxes pay <amount>` · `~welfare`";
+        const std::string operation = input.empty() ? "status" : input[0];
+        if (operation == "tariff" && input.size() == 2 &&
+            government.mayor_id == user_id) {
+            const int percent = std::atoi(input[1].c_str());
+            if (percent < 0 || percent > 25) {
+                message = "Tariffs must be between 0 and 25 percent.";
+                result = ECONOMY_INVALID_ARGUMENT;
+            } else {
+                dynamics.tariff_basis_points = percent * 100;
+                message = "Import tariff set to **" +
+                    std::to_string(percent) +
+                    "%**. Trading partners have begun drafting strongly worded statements.";
+            }
+        } else if (operation == "treaty" && input.size() == 2 &&
+                   government.mayor_id == user_id &&
+                   valid_id(input[1].c_str()) && input[1] != guild_id &&
+                   g_guilds.find(input[1]) != g_guilds.end()) {
+            dynamics.trade_partner = input[1];
+            message = "Proposed a bilateral trade agreement with server `" +
+                input[1] + "`. Tariff relief activates when both governments "
+                "select one another.";
+        } else if (operation != "status" && operation != "tariff" &&
+                   operation != "treaty") {
+            message = "Usage: `/government input: <tariff 0-25|treaty server_id>` "
+                      "(current mayor only).";
+            result = ECONOMY_INVALID_ARGUMENT;
+        } else if ((operation == "tariff" || operation == "treaty") &&
+                   government.mayor_id != user_id) {
+            message = "Only the sitting mayor can change international trade policy.";
+            result = ECONOMY_INVALID_ARGUMENT;
+        } else {
+            message = "**Guild Government**\nMayor: " +
+                (government.mayor_id.empty() ? std::string("vacant")
+                                             : "<@" + government.mayor_id + ">") +
+                "\nPlatform: **" +
+                platforms[std::min<uint32_t>(government.platform, 2)] +
+                "** | Tax rate: **" +
+                std::to_string(government.tax_basis_points / 100.0) +
+                "%** | Import tariff: **" +
+                std::to_string(dynamics.tariff_basis_points / 100.0) +
+                "%**\nTreasury / public debt: **" +
+                cash(government.treasury_cents) + " / " +
+                cash(dynamics.government_debt_cents) +
+                "**\nPolicy rate: **" +
+                std::to_string(dynamics.policy_rate_bp / 100.0) +
+                "%** | Trade partner: **" +
+                (dynamics.trade_partner.empty() ? "none"
+                                                : dynamics.trade_partner) +
+                "**\n`/election` · `/taxes` · `/welfare` · "
+                "`/government input: tariff|treaty ...`";
+        }
     } else if (action == "taxes") {
         int64_t amount = 0;
         if (input.size() == 2 && input[0] == "pay" && parse_amount(1, amount) &&
@@ -5447,30 +6282,145 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
             message = out.str();
         }
     } else if (action == "economyinfo") {
-        message = "**Server Economy**\nInflation: **" +
+        const std::string phase =
+            dynamics.recession_hours >= 12 ? "recession" :
+            dynamics.recession_hours > 0 ? "contraction warning" :
+            dynamics.recovery_hours > 0 ? "organic recovery" :
+            dynamics.trend >= 8 ? "expansion" :
+            dynamics.trend <= -8 ? "cooling" : "balanced";
+        message = "**Living Server Economy**\nIdentity: **" +
+            std::string(kEconomyPersonalities[
+                std::min<uint32_t>(dynamics.personality, 3)]) +
+            "** | Cycle: **" + phase + "**\nInflation: **" +
             std::to_string(guild.inflation_bp / 100.0) + "%**\nUnemployment: **" +
             std::to_string(guild.unemployment_bp / 100.0) +
             "%**\nConsumer confidence: **" + std::to_string(guild.confidence) +
-            "/100**\nMarket condition: **" +
-            (guild.confidence > 65 ? "reckless boom" :
-             guild.confidence < 35 ? "recession-shaped hole" : "uneasy expansion") + "**";
+            "/100** | Behavior trend: **" +
+            (dynamics.trend >= 0 ? "+" : "") +
+            std::to_string(dynamics.trend) +
+            "**\nPolicy rate: **" +
+            std::to_string(dynamics.policy_rate_bp / 100.0) +
+            "%** | Currency index: **" +
+            std::to_string(dynamics.currency_index) +
+            "**\nCapital in / out: **" +
+            cash(dynamics.capital_inflow_cents) + " / " +
+            cash(dynamics.capital_outflow_cents) +
+            "**\nExports / imports: **" +
+            cash(dynamics.exports_cents) + " / " +
+            cash(dynamics.imports_cents) +
+            "**\nRecession / recovery hours: **" +
+            std::to_string(dynamics.recession_hours) + " / " +
+            std::to_string(dynamics.recovery_hours) +
+            "**\nThese values emerge from saving, spending, trading, hiring, "
+            "capital movement, policy, and company results.";
     } else if (action == "news") {
-        static constexpr const char* headlines[] = {
-            "Enron investigated again; executives describe this as tradition.",
-            "Horen raises savings rates and loan officers sharpen their pencils.",
-            "Rat Mining discovers something shiny beneath the break room.",
-            "Dogecoin Mines rises on absolutely no identifiable information.",
-            "Boogle launches an AI that summarizes other AIs summarizing Boogle.",
-            "Food costs squeeze Yummy Burger; defensive investors demand fries.",
-            "Skibidi Steel expands as construction spending catches fire.",
-            "Credit conditions tighten after several completely avoidable disasters."
-        };
-        message = "**The Daily Tail**\n" + std::string(headlines[guild.event_id % 8]) +
-            "\nConfidence: **" + std::to_string(guild.confidence) +
-            "** | Inflation: **" + std::to_string(guild.inflation_bp / 100.0) + "%**";
+        const std::string scope = input.empty() ? "all" : input[0];
+        if (scope != "all" && scope != "local" && scope != "global") {
+            message = "Usage: `/news input: <all|local|global>`";
+            result = ECONOMY_INVALID_ARGUMENT;
+        } else {
+            std::ostringstream out;
+            out << "**The Daily Tail · Living Newswire**\n";
+            size_t shown = 0;
+            for (auto it = g_news.rbegin();
+                 it != g_news.rend() && shown < 8; ++it) {
+                const bool visible = it->global || it->origin_guild == guild_id;
+                if (!visible ||
+                    (scope == "local" && it->global) ||
+                    (scope == "global" && !it->global)) continue;
+                ++shown;
+                out << (it->global ? "🌐" : "📍") << " **"
+                    << kNewsRarity[std::min<uint32_t>(it->rarity, 3)]
+                    << "** " << it->headline;
+                if (it->stage == 0) out << " *[developing]*";
+                out << '\n';
+            }
+            if (!shown) {
+                out << "No matching events yet. The simulation is gathering "
+                       "behavioral and corporate signals.\n";
+            }
+            out << "\nLocal confidence **" << guild.confidence
+                << "** · currency index **" << dynamics.currency_index
+                << "** · `/news input: local|global`";
+            message = out.str();
+        }
     } else {
         message = "Unknown economy action.";
         result = ECONOMY_INVALID_ARGUMENT;
+    }
+
+    if (result == ECONOMY_OK) {
+        ++global.lifetime_actions;
+        sync_global_player(user_id, player, development, now);
+
+        const int64_t wallet_spent =
+            std::max<int64_t>(0, wallet_before.wallet_cents - wallet.wallet_cents);
+        const int64_t saved =
+            std::max<int64_t>(0,
+                (player.savings_cents + player.hysa_cents) -
+                (player_before.savings_cents + player_before.hysa_cents));
+        const bool investment_action =
+            action == "stock" || action == "orders" ||
+            action == "derivatives" || action == "invest" ||
+            action == "bonds" || action == "property" ||
+            action == "business" || action == "equipment" ||
+            action == "marketing" || action == "partnership" ||
+            action == "corporate" || action == "auction";
+        const bool sale_action =
+            (action == "stock" && !input.empty() && input[0] == "sell") ||
+            (action == "short" && !input.empty() && input[0] == "open") ||
+            (action == "orders" && input.size() > 1 && input[1] == "sell");
+        if (action != "forex") {
+            if (investment_action) {
+                add_bounded(dynamics.investment_cents, wallet_spent);
+            } else {
+                add_bounded(dynamics.spending_cents, wallet_spent);
+            }
+        }
+        add_bounded(dynamics.saving_cents, saved);
+        if (sale_action) {
+            add_bounded(dynamics.selling_cents,
+                std::max<int64_t>(wallet_spent,
+                    wallet.wallet_cents - wallet_before.wallet_cents));
+        }
+        if (advanced.employees > advanced_before.employees) {
+            dynamics.hires +=
+                advanced.employees - advanced_before.employees;
+        } else if (advanced.employees < advanced_before.employees) {
+            dynamics.layoffs +=
+                advanced_before.employees - advanced.employees;
+        }
+        if (player_before.business_level && !player.business_level) {
+            dynamics.layoffs += std::max<uint32_t>(
+                1, advanced_before.employees);
+        }
+        if (action == "pay" || action == "stock" || action == "auction" ||
+            action == "contract" || action == "partnership") {
+            global.lifetime_trade_cents +=
+                static_cast<uint64_t>(wallet_spent);
+        }
+
+        const int64_t approximate_worth =
+            wallet.wallet_cents + wallet.checking_cents +
+            player.savings_cents + player.hysa_cents +
+            portfolio_value(player, guild) +
+            advanced_asset_value(advanced, guild) -
+            player.debt_cents;
+        if (global.lifetime_actions >= 1) global.achievements |= 1ull << 0;
+        if (player_server_count(user_id) >= 2) global.achievements |= 1ull << 1;
+        if (global.education_mask) global.achievements |= 1ull << 2;
+        if (global.licenses) global.achievements |= 1ull << 3;
+        if (player.business_level) global.achievements |= 1ull << 4;
+        if (global_collectible_count(user_id)) global.achievements |= 1ull << 5;
+        if (global.lifetime_forex_cents) global.achievements |= 1ull << 6;
+        if (approximate_worth >= 100000000) global.achievements |= 1ull << 7;
+        global.reputation = std::clamp(
+            50 + static_cast<int32_t>(
+                std::min<uint64_t>(30, global.lifetime_actions / 25)) +
+            static_cast<int32_t>(
+                std::min<uint64_t>(10, global.lifetime_trade_cents / 10000000)) -
+            static_cast<int32_t>(std::min<uint32_t>(20, crime.offenses)),
+            0, 100);
     }
 
     if (action != "history") {
@@ -5497,6 +6447,22 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
         business = business_before;
         development = development_before;
         security = security_before;
+        if (global_player_was_new) g_global_players.erase(user_id);
+        else g_global_players[user_id] = global_before;
+        g_dynamics[guild_id] = dynamics_before;
+        g_news = news_before;
+        g_next_news_id = next_news_before;
+        if (cross_target_changed) {
+            g_players[cross_target_key] = cross_target_before;
+        }
+        if (cross_target_dynamics_changed) {
+            g_dynamics[cross_target_guild] =
+                cross_target_dynamics_before;
+        }
+        if (cross_advanced_changed) {
+            g_advanced_players[cross_advanced_key] =
+                cross_advanced_before;
+        }
         g_contracts = contracts_before;
         g_orders = orders_before;
         g_audit = audit_before;
@@ -5557,8 +6523,8 @@ void* api_get_function(const char* name) {
 
 ExtensionInfo g_info = {
     "local_economy",
-    "Persistent per-guild economy state and transaction engine",
-    "1.0.0",
+    "Persistent local economies connected by a global simulation",
+    "2.0.0",
     "Routine Team",
     EXT_TYPE_CUSTOM,
     static_cast<uint32_t>(EXT_CAP_CUSTOM),

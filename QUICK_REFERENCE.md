@@ -25,6 +25,21 @@ Legacy `~` forms remain available when Message Content Intent is configured.
 The bundled economy commands are documented in
 [ECONOMY_GAME.md](ECONOMY_GAME.md).
 
+## Economy Version 2 entry points
+
+- `/economy` — categorized game menu
+- `/profile` — local finances and progression
+- `/profile input: global` — global identity and long-term statistics
+- `/economyinfo` — local macro cycle and emergent server identity
+- `/forex` — connected currencies, quotes, and cross-server exchange
+- `/news` — developing local and global events
+- `/business input: export SERVER QUANTITY` — international trade
+- `/government` — treasury, rates, debt, tariffs, and trade policy
+
+Balances, banks, companies, property, jobs, governments, and currencies remain
+local. Education, licenses, reputation, achievements, long-term statistics,
+and serialized collectible ownership follow the player globally.
+
 ## Runtime locations
 
 - `config.json` — private bot configuration
@@ -81,5 +96,10 @@ git diff --check
 - [Quick start](QUICKSTART.md)
 - [Slash commands](SLASH_COMMANDS.md)
 - [Module system](MODULE_SYSTEM.md)
+- [Module quick start](QUICKSTART_MODULES.md)
+- [Script system](SCRIPT_SYSTEM.md)
+- [Economy Version 2](ECONOMY_GAME.md)
+- [Implementation status](IMPLEMENTATION_SUMMARY.md)
+- [Platform vision](VISION.md)
 - [Linux portability](LINUX_PORTABILITY.md)
 - [Public release](PUBLIC_RELEASE.md)

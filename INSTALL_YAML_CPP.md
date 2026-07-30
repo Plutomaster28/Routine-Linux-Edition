@@ -1,125 +1,66 @@
-# Installing yaml-cpp
+# Installing yaml-cpp on Linux
 
-The script engine requires yaml-cpp for parsing YAML syntax.
-
-## Windows (MSYS2 UCRT64)
-
-```bash
-pacman -S mingw-w64-ucrt-x86_64-yaml-cpp
-```
-
-## Windows (vcpkg)
-
-```powershell
-vcpkg install yaml-cpp:x64-windows
-```
-
-## Linux (Debian/Ubuntu)
+Routine uses `yaml-cpp` for its optional in-process script parser. The normal
+installer handles this dependency:
 
 ```bash
-sudo apt install libyaml-cpp-dev
+./install_deps_linux.sh
 ```
 
-## Linux (Fedora/RHEL)
+Manual package commands are below for troubleshooting.
+
+## Debian and Ubuntu
 
 ```bash
-sudo dnf install yaml-cpp-devel
+sudo apt update
+sudo apt install libyaml-cpp-dev pkg-config
 ```
 
-## macOS (Homebrew)
+## Fedora-family systems
 
 ```bash
-brew install yaml-cpp
+sudo dnf install yaml-cpp-devel pkgconf-pkg-config
 ```
 
-## Building from Source
-
-If your package manager doesn't have yaml-cpp:
+## Arch-family systems
 
 ```bash
-git clone https://github.com/jbeder/yaml-cpp.git
-cd yaml-cpp
-mkdir build && cd build
-cmake -DYAML_BUILD_SHARED_LIBS=ON ..
-cmake --build .
-sudo cmake --install .
+sudo pacman -S yaml-cpp pkgconf
 ```
 
-## Verifying Installation
+## Verify discovery
 
-After installation, rebuild the bot:
+Routine resolves dependencies through the active Linux `pkg-config` database:
 
 ```bash
-cd discord-bot
-rm -rf build  # Clean build
-cmake -S . -B build
-cmake --build build
+pkg-config --modversion yaml-cpp
+pkg-config --cflags --libs yaml-cpp
 ```
 
-If you see yaml-cpp related errors, cmake will tell you:
-- "Found yaml-cpp" - Good to go
-- "Could not find yaml-cpp" - Installation failed
+Then run the normal build:
+
+```bash
+./build_linux.sh
+```
 
 ## Troubleshooting
 
-### CMake can't find yaml-cpp
+If CMake reports that `yaml-cpp` is missing:
 
-Try setting the path explicitly:
+1. Confirm `pkg-config --modversion yaml-cpp` succeeds.
+2. Check that `PKG_CONFIG_PATH` does not point only at an MSYS2 or Windows
+   package database.
+3. Delete only the relevant disposable build directory and configure again.
+4. Prefer the distribution package over mixing a manual `/usr/local`
+   installation with packaged dependencies.
 
-```bash
-cmake -S . -B build -Dyaml-cpp_DIR=/path/to/yaml-cpp
-```
+Do not copy Windows `.dll` or `.a` files into the Linux build. Routine's
+Linux-first dependency resolution is designed to prevent mixed-platform
+linkage.
 
-### Linking errors
+## Current script-engine boundary
 
-Make sure you have the shared library (`.so`/`.dll`) not just headers.
-
-### Multiple installations
-
-If you have yaml-cpp in multiple locations, cmake might pick the wrong one. Set:
-
-```bash
-export CMAKE_PREFIX_PATH=/path/to/correct/yaml-cpp
-```
-
-## Alternative: Header-Only Mode
-
-yaml-cpp can be used header-only (slower compile, no linking):
-
-1. Clone yaml-cpp into your project:
-   ```bash
-   git clone https://github.com/jbeder/yaml-cpp.git external/yaml-cpp
-   ```
-
-2. Add to CMakeLists.txt:
-   ```cmake
-   add_subdirectory(external/yaml-cpp)
-   target_link_libraries(routine yaml-cpp)
-   ```
-
-## Verification
-
-Test that yaml-cpp works:
-
-```cpp
-#include <yaml-cpp/yaml.h>
-#include <iostream>
-
-int main() {
-    YAML::Node config = YAML::Load("{name: test}");
-    std::cout << config["name"].as<std::string>() << std::endl;
-    return 0;
-}
-```
-
-Compile:
-```bash
-g++ test.cpp -lyaml-cpp -o test
-./test
-```
-
-Should output: `test`
-
----
-
-Once yaml-cpp is installed, the script engine will work!
+Installing `yaml-cpp` enables parsing, but it does not add features beyond
+those implemented by Routine. Scripts currently support in-memory
+`message.create` automation through built-in `responder` and `log` actions.
+See [SCRIPT_SYSTEM.md](SCRIPT_SYSTEM.md).

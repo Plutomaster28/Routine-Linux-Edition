@@ -94,6 +94,9 @@ Try:
 /list
 /balance
 /market
+/forex
+/news
+/profile input: global
 ```
 
 The old `~help` style remains available when message content events are
@@ -143,4 +146,6 @@ libraries must be the native Linux `.so` files produced by the current build.
 ### Economy data
 
 Persistent data lives in `data/local_economy_v1.db`. Back up the entire
-`data/` directory while the bot is stopped.
+`data/` directory while the bot is stopped. Economy Version 2 keeps this
+filename for in-place upgrades; the internal Version 3 format automatically
+migrates earlier saves.

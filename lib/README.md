@@ -33,8 +33,7 @@ mkdir -p build_extensions
 cd build_extensions
 cmake -G Ninja ..
 ninja
-cp *.dll ..  # Windows
-# or: cp *.so ..  # Linux
+cp *.so ..
 ```
 
 ## Using Extensions in Modules

@@ -11,10 +11,11 @@ Because sometimes you need that 1957 energy in your 2025 Discord bot.
 
 ## Requirements
 
-You'll need a FORTRAN compiler:
-- **Windows**: Install MinGW-w64 with gfortran
-- **Linux**: `sudo apt install gfortran` or `sudo dnf install gcc-gfortran`
-- **macOS**: `brew install gcc` (includes gfortran)
+You'll need a native Linux FORTRAN compiler:
+
+- **Debian/Ubuntu**: `sudo apt install gfortran`
+- **Fedora-family**: `sudo dnf install gcc-gfortran`
+- **Arch-family**: `sudo pacman -S gcc-fortran`
 
 ## Writing a FORTRAN Module
 
@@ -115,7 +116,7 @@ cmake --build build_modules
 CMake will automatically:
 1. Detect your FORTRAN file
 2. Enable the Fortran language
-3. Compile it to a `.dll` (Windows) or `.so` (Linux/macOS)
+3. Compile it to a Linux `.so`
 4. Link it with the module interface
 
 ## Example: Vector Math Module

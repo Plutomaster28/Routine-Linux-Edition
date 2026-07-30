@@ -19,6 +19,9 @@ first-party module and extension that doubles as a large integration test.
 - Owned REST worker, rate-limit handling, reconnects, and clean shutdown
 - Runtime module reloads with ABI and permission validation
 - Persistent, atomic local-economy storage with rollback snapshots
+- Economy v2: global player identity connected to distinct local currencies,
+  behavior-driven cycles, foreign exchange, international trade, and evolving
+  local/global news
 - Tested native Linux builds on x86_64
 
 ## Build and run
@@ -98,6 +101,10 @@ names from `build_linux.sh`.
 - [Slash commands](SLASH_COMMANDS.md)
 - [Module system](MODULE_SYSTEM.md)
 - [Economy game](ECONOMY_GAME.md)
+- [Platform vision](VISION.md)
+- [Linux module quick start](QUICKSTART_MODULES.md)
+- [Script system](SCRIPT_SYSTEM.md)
+- [Current implementation summary](IMPLEMENTATION_SUMMARY.md)
 - [Linux portability audit](LINUX_PORTABILITY.md)
 - [Public release checklist](PUBLIC_RELEASE.md)
 - [Security policy](SECURITY.md)

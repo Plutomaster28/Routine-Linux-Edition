@@ -1,255 +1,110 @@
-# Routine Bot - Module System Implementation Summary
+# Module and extension system
 
-## What We Built
+Routine Linux Edition keeps Discord transport separate from feature code.
+Modules provide user-facing commands and events; extensions provide named
+low-level APIs to native modules.
 
-A **revolutionary Discord bot framework** with a complete module system that supports:
-- C modules
-- C++ modules  
-- Assembly modules
-- Lua modules
+## Startup order
 
-## Files Created
+```text
+configuration
+    → kernel services
+    → extensions from lib/*.so
+    → native modules from modules/*.so
+    → Lua modules from modules/*.lua
+    → application-command catalog generation
+    → Discord synchronization
+```
 
-### Core Module System
-1. **include/module_interface.h** - C-compatible API for all modules
-   - Defines module structure and callbacks
-   - Bridge functions for kernel-module communication
-   - Supports native (C/C++/Assembly) and Lua modules
+Extensions load first so modules can resolve required functions during
+`module_init`. Shutdown happens in reverse order.
 
-2. **include/module_loader.hpp** + **src/module_loader.cpp**
-   - Loads compiled modules (.dll/.so)
-   - Hot-reload support
-   - Command routing to modules
-   - Directory scanning for auto-load
+## Native module ABI
 
-3. **include/lua_module.hpp** + **src/lua_module.cpp**
-   - Lua interpreter integration
-   - Lua-to-kernel bridge
-   - Hot-reload for Lua scripts
-   - Command dispatch to Lua functions
+The contract is [module_interface.h](include/module_interface.h). API version 4
+requires:
 
-### Module Examples
-4. **examples/modules/example.lua** - Complete Lua module example
-   - Commands: ~greet, ~calc, ~random, ~luainfo
-   - Demonstrates all Lua features
-   - Fully documented
-
-5. **examples/modules/example_c_module.c** - C module template
-   - Commands: ~hello, ~timestamp, ~reverse
-   - Shows how to compile and use C modules
-   - Includes build instructions
-
-6. **modules/README.md** - Complete module documentation
-   - How to create modules in each language
-   - API reference
-   - Build instructions
-   - Best practices
-
-### Kernel Integration
-7. **Updated discord_bot.hpp/cpp**
-   - Added module_loader_ and lua_module_loader_ members
-   - Auto-loads modules on startup
-   - Provides access to loaders
-
-8. **Updated command_handler.hpp/cpp**
-   - Routes commands to modules
-   - Falls back to kernel commands
-   - Supports module command priority
-
-9. **Updated commands.cpp**
-   - Implemented ~reload command (hot-reload modules)
-   - Implemented ~list command (show loaded modules)
-   - Both commands now fully functional
-
-10. **Updated CMakeLists.txt**
-    - Added Lua dependency
-    - Added module_loader.cpp and lua_module.cpp to build
-    - Links Lua libraries
-
-11. **Updated README.md**
-    - Documents entire module system
-    - Explains how to create modules
-    - Distribution instructions
-
-## Key Features
-
-### Module Interface (module_interface.h)
 ```c
-// Required exports for all modules:
 ModuleInfo module_get_info(void);
-int module_init(const KernelBridge* bridge, void* bot_context);
+int module_init(const KernelBridge*, void*);
 void module_shutdown(void);
 const CommandRegistration* module_register_commands(void);
-
-// Optional:
-void module_on_message(...);  // Raw message handling
-void module_on_tick(...);     // Periodic updates
 ```
 
-### Kernel Bridge
-Modules can call back into the kernel:
-- `bridge->send_message()` - Send Discord messages
-- `bridge->log()` - Log to console
-- `bridge->get_uptime()` - Get bot uptime
+Optional exports receive raw messages or periodic ticks. Command tables are
+null-terminated, bounded by the loader, and copied into kernel-owned metadata.
+Callbacks receive channel ID, user ID, and one argument string.
 
-### Lua API
-Lua modules get a `bot` table:
-```lua
-bot.send_message(channel_id, content)
-bot.log(message)
-bot.get_uptime()
+The `KernelBridge` exposes message sending, logging, uptime, channel/guild
+resolution, extension lookup, cached roles, and guild-admin checks.
+
+## Lua modules
+
+Lua modules define metadata and a `commands` table. They may also expose
+lifecycle and raw-message hooks. The Lua runtime opens the standard libraries;
+Lua is not a hardened security sandbox. Only load trusted files.
+
+Tutorial Lua lives under `examples/modules/`. Moving it into `modules/` makes
+it production code and consumes slash-command budget.
+
+## Extension ABI
+
+The contract is [extension_interface.h](include/extension_interface.h).
+Extensions expose metadata, an ABI version, lifecycle callbacks, capability
+checks, and named function lookup.
+
+The kernel does not interpret extension-specific functions. A module and
+extension share a separate C header, as the economy does through
+`economy_extension_api.h`.
+
+## Slash commands
+
+After every production module loads, the kernel combines built-in, native, and
+Lua command definitions. It validates names, deduplicates them, adds the
+compatibility `input` option where needed, caps the payload at 100 commands,
+and bulk-overwrites the chosen guild or global catalog.
+
+Native module ABI v4 does not expose typed options. Modules parse the same
+input string for slash and legacy prefix invocations.
+
+## Reload behavior
+
+`/reload input: NAME` and `~reload NAME` can reload a dynamic module. Reloads
+are useful for implementation changes, but command additions/removals should
+be followed by a process restart so Discord's catalog is regenerated.
+
+Never unload a native library while its callback is executing or while another
+thread retains one of its function pointers.
+
+## Building
+
+Use:
+
+```bash
+./build_linux.sh
 ```
 
-### Hot-Reload System
-- `~reload` - Reload all modules
-- `~reload <module>` - Reload specific module
-- No bot restart needed
-- Preserves kernel state
+Native targets are declared in `modules/CMakeLists.txt` or
+`lib/CMakeLists.txt`. Runtime artifacts are `.so` files with no `lib` prefix.
+The build tests each layer before copying artifacts into `modules/` and `lib/`.
 
-### Auto-Loading
-On startup, bot scans `modules/` for:
-- `.dll` / `.so` files (native modules)
-- `.lua` files (Lua modules)
+## Security model
 
-## How It Works
+- Native code is fully trusted, in-process code.
+- Lua code is trusted embedded code.
+- ABI versions reject known-incompatible binaries, not malicious binaries.
+- Administrative authorization belongs in the module and should use
+  `is_guild_admin`, not user-supplied text.
+- Persistent extensions must validate invariants and fail closed on save
+  errors.
+- Secrets and runtime data never belong in a module source file.
 
-### Module Loading Flow
-```
-Bot Startup
-  ↓
-discord_bot.run()
-  ↓
-module_loader_->load_modules_from_directory("modules")
-lua_module_loader_->load_modules_from_directory("modules")
-  ↓
-For each module:
-  - Load library/script
-  - Call module_init()
-  - Register commands
-  ↓
-Ready!
-```
+## Development
 
-### Command Dispatch Flow
-```
-User sends: ~greet Bob
-  ↓
-CommandHandler::handle_message()
-  ↓
-Check kernel commands first
-  ↓
-If not found, check module_loader_->dispatch_command()
-  ↓
-If not found, check lua_module_loader_->dispatch_command()
-  ↓
-Module executes command
-  ↓
-Module calls bridge->send_message()
-  ↓
-Response sent to Discord
-```
+See:
 
-## Module System Capabilities
-
-### Supported Module Types
-1. **Lua** - Easiest, no compilation, hot-reload
-2. **C** - Maximum performance, full control
-3. **C++** - OOP with C++ features
-4. **Assembly** - Ultimate low-level control
-
-### Module Capabilities
-- Register custom commands
-- Send messages to Discord
-- Log to console
-- Handle raw messages (optional)
-- Periodic tick events (optional)
-- Access to bot uptime
-- Hot-reload without bot restart
-
-### Security
-- Lua modules are sandboxed (limited access)
-- C/C++ modules have full system access
-- Module API versioning prevents incompatibilities
-- Modules can't crash kernel (isolated)
-
-## Next Steps
-
-### To Use This System:
-1. Build the bot: `cmake -G Ninja .. && ninja`
-2. Run: `./routine.exe`
-3. Bot auto-loads modules from `modules/`
-4. Test with example modules:
-   - `~greet YourName` (Lua)
-   - `~calc 2+2` (Lua)
-   - Compile example_c_module.c to test C modules
-
-### To Create Your Own Module:
-
-**Lua** (5 minutes):
-1. Copy `examples/modules/example.lua` into `modules/`
-2. Rename and modify
-3. Use `~reload` to load
-
-**C/C++** (15 minutes):
-1. Copy `examples/modules/example_c_module.c` into `modules/`
-2. Modify to add your commands
-3. Compile: `gcc -shared -I../include mymod.c -o modules/mymod.dll`
-4. Use `~reload` to load
-
-## What This Enables
-
-### For Users
-- Customize bot without coding knowledge (Lua)
-- Add features without recompiling kernel
-- Share modules with community
-- Hot-swap functionality
-
-### For Developers
-- Write high-performance modules in C/C++
-- Full system access when needed
-- Clean API with kernel bridge
-- Module versioning and compatibility checks
-
-### For the Ecosystem
-- **First serious C++ Discord bot framework**
-- Distributable: Just ship `routine.exe` + modules
-- Language agnostic: Choose your tool
-- Performance oriented: Sub-millisecond commands
-
-## Technical Details
-
-### Memory Management
-- Modules loaded via dlopen/LoadLibrary
-- Proper cleanup on unload
-- No memory leaks from hot-reload
-
-### Thread Safety
-- Module commands run in bot's event loop
-- Bridge functions are thread-safe
-- Lua state per module (isolated)
-
-### Error Handling
-- Module errors don't crash kernel
-- Failed modules skip loading
-- Reload handles errors gracefully
-
-### Performance Impact
-- Module command dispatch: ~50-100μs overhead
-- Lua commands: ~1-2ms (interpreter overhead)
-- C commands: ~200-300μs (same as kernel)
-
----
-
-## Summary
-
-We've created a **complete, production-ready module system** for a Discord bot in C++. This enables:
-
-1. **Ultimate Flexibility** - Supports 4 languages
-2. **Hot-Reload** - No restarts needed
-3. **Performance** - C modules run at kernel speed
-4. **Ease of Use** - Lua for simple modules
-5. **Distribution** - Share bot + modules
-
-This is legitimately revolutionary - **the first Discord bot framework in C++ with full module support**.
-
-*Miyamii was here*
+- [Linux module quick start](QUICKSTART_MODULES.md)
+- [Runtime module directory](modules/README.md)
+- [Extension directory](lib/README.md)
+- [Fortran guide](modules/FORTRAN_GUIDE.md)
+- [Slash-command transport](SLASH_COMMANDS.md)

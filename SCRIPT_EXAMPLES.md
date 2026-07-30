@@ -1,188 +1,96 @@
-# Example Scripts
+# Script examples
 
-These are complete, working examples you can post directly in Discord.
+These examples use only the two script actions implemented by Linux Edition:
+`responder` and `log`. Load them with a legacy `~script load` message containing
+the YAML in a fenced code block.
 
-## 1. Simple Greeter
+## Greeting
 
 ```yaml
-script: simple_greeter
+script: greeting
 on: message.create
-
 when:
-  starts_with: "!hi"
-
+  starts_with: "hello routine"
 do:
   - module: responder
     args:
       channel: "{{channel_id}}"
-      content: "Hey {{author.username}}!"
+      content: "Hello, {{author.username}}."
 ```
 
-## 2. Echo Bot
+## Exact trigger
 
 ```yaml
-script: echo
+script: exact_status
 on: message.create
-
 when:
-  starts_with: "!echo"
-
+  equals: "system status"
 do:
   - module: responder
     args:
       channel: "{{channel_id}}"
-      content: "{{content}}"
+      content: "Routine is receiving message events."
 ```
 
-## 3. Status Reporter
+## Channel-scoped notice
 
 ```yaml
-script: status
+script: channel_notice
 on: message.create
-
 when:
-  contains: "!status"
+  in_channel: "YOUR_CHANNEL_ID"
+  contains: "deployment"
+do:
+  - module: responder
+    args:
+      channel: "{{channel_id}}"
+      content: "Deployment discussion detected."
+  - module: log
+    args:
+      message: "Deployment mention by {{author.id}}"
+```
 
+## Role-scoped response
+
+```yaml
+script: operator_ping
+on: message.create
+when:
+  has_role: "YOUR_ROLE_ID"
+  starts_with: "operator:"
+do:
+  - module: responder
+    args:
+      channel: "{{channel_id}}"
+      content: "Operator message acknowledged."
+```
+
+Role matching depends on the role data present in the event context. Validate
+this behavior in a development server before relying on it.
+
+## Regex trigger
+
+```yaml
+script: ticket_reference
+on: message.create
+when:
+  matches_regex: "TICKET-[0-9]{4,8}"
 do:
   - module: log
     args:
-      message: "Status requested by {{author.username}}"
-  
-  - module: responder
-    args:
-      channel: "{{channel_id}}"
-      content: "Bot Status: ONLINE\n Engine: C++\n Modules: Loaded"
+      message: "Ticket reference from {{author.username}}: {{content}}"
 ```
 
-## 4. Help Command via Script
+## Management
 
-```yaml
-script: help
-on: message.create
-
-when:
-  starts_with: "!scripthelp"
-
-do:
-  - module: responder
-    args:
-      channel: "{{channel_id}}"
-      content: "**Available Scripts:**\nUse !hi to greet\nUse !status for status\nUse !echo to echo"
+```text
+/script input: list
+/script input: show greeting
+/script input: disable greeting
+/script input: enable greeting
+/script input: remove greeting
 ```
 
-## 5. Welcome Message (Server Join)
-
-```yaml
-script: welcome
-on: guild.create
-
-do:
-  - module: log
-    args:
-      message: "Bot joined a new server!"
-```
-
-## 6. Regex Pattern Matcher
-
-```yaml
-script: detect_links
-on: message.create
-
-when:
-  matches_regex: "https?://.*"
-
-do:
-  - module: log
-    args:
-      message: "Link detected from {{author.username}}: {{content}}"
-```
-
-## 7. Channel-Specific Response
-
-```yaml
-script: announcements
-on: message.create
-
-when:
-  in_channel: "123456789012345678"
-  contains: "!announce"
-
-do:
-  - module: responder
-    args:
-      channel: "{{channel_id}}"
-      content: "Announcement posted by {{author.username}}"
-```
-
-## 8. Multiple Actions
-
-```yaml
-script: complex_workflow
-on: message.create
-
-when:
-  starts_with: "!process"
-
-do:
-  - module: log
-    args:
-      message: "Processing request from {{author.username}}"
-  
-  - module: responder
-    args:
-      channel: "{{channel_id}}"
-      content: "Processing your request..."
-  
-  - module: responder
-    args:
-      channel: "{{channel_id}}"
-      content: "Done!"
-```
-
-## How to Load These
-
-1. Copy the script you want
-2. In Discord, type: `~script load`
-3. Paste the script in a code block:
-   ````
-   ```yaml
-   script: simple_greeter
-   on: message.create
-   
-   when:
-     starts_with: "!hi"
-   
-   do:
-     - module: responder
-       args:
-         channel: "{{channel_id}}"
-         content: "Hey {{author.username}}!"
-   ```
-   ````
-4. Press Enter
-
-The bot will validate and load it!
-
-## Testing
-
-After loading, test with:
-- `!hi` for greeter
-- `!status` for status
-- `!echo test` for echo
-- etc.
-
-## Notes
-
-- These examples only use built-in modules (`responder`, `log`)
-- To invoke custom modules (C/C++/Lua/FORTRAN), just change the module name
-- All scripts can be managed with `~script list`, `~script disable`, etc.
-
----
-
-**The Stack:**
-- C → Absolute control
-- C++ → Structure without losing power  
-- ASM → Raw trust issues
-- Lua → Usability layer
-- FORTRAN → Make the API uncomfortable
-- **Scripts → Orchestration without chaos**
+Scripts are currently in memory only and disappear when Routine restarts.
+Unknown action modules do not invoke native modules. See
+[SCRIPT_SYSTEM.md](SCRIPT_SYSTEM.md) for the exact boundaries.

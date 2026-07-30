@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
     auto on_tick = reinterpret_cast<void (*)(void*)>(library.symbol("module_on_tick"));
     assert(get_info && initialize && shutdown && register_commands && on_tick);
     assert(get_info().api_version == MODULE_API_VERSION);
-    assert(std::string(get_info().version) == "1.0.0");
+    assert(std::string(get_info().version) == "2.0.0");
 
     KernelBridge bridge{};
     bridge.send_message = send_message;
@@ -171,6 +171,7 @@ int main(int argc, char** argv) {
     const CommandRegistration* commands = register_commands();
     const CommandRegistration* economy = find_command(commands, "economy");
     const CommandRegistration* balance = find_command(commands, "balance");
+    const CommandRegistration* forex = find_command(commands, "forex");
     const CommandRegistration* daily = find_command(commands, "daily");
     const CommandRegistration* inventory = find_command(commands, "inventory");
     const CommandRegistration* leaderboard = find_command(commands, "leaderboard");
@@ -204,7 +205,7 @@ int main(int argc, char** argv) {
     const CommandRegistration* agreement = find_command(commands, "agreement");
     const CommandRegistration* mystats = find_command(commands, "mystats");
     const CommandRegistration* mychart = find_command(commands, "mychart");
-    assert(economy && balance && daily && inventory && leaderboard && profile && stock &&
+    assert(economy && balance && forex && daily && inventory && leaderboard && profile && stock &&
            derivatives && bankruptcy && orders && contract && casino && history &&
            stipend && corporate && econadmin && crime && election && government &&
            economystats && chart && rank && auction && supply && produce &&
@@ -213,10 +214,12 @@ int main(int argc, char** argv) {
     assert(certifications && skills && agreement && mystats && mychart);
 
     economy->callback(nullptr, "300", "200", "");
-    assert(g_message.find("Routine Economy · Version 1") != std::string::npos);
+    assert(g_message.find("Routine Economy · Version 2") != std::string::npos);
     assert(g_message.find("Legacy players can replace `/` with `~`") !=
            std::string::npos);
     assert(g_message.size() <= 2000);
+    forex->callback(nullptr, "300", "200", "markets");
+    assert(g_message == "game action: forex");
 
     balance->callback(nullptr, "300", "200", "");
     assert(g_message.find("Wallet: **¤50.00**") != std::string::npos);

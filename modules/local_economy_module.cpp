@@ -180,16 +180,17 @@ std::string status_error(int status) {
 
 void cmd_economy(void*, const char* channel_id, const char*, const char*) {
     reply(channel_id,
-        "# Routine Economy · Version 1\n"
-        "A persistent, server-local financial catastrophe.\n\n"
+        "# Routine Economy · Version 2\n"
+        "Local financial catastrophes, now connected to a living world economy.\n\n"
         "**Get moving**\n"
-        "`/profile` `/balance` `/daily` `/work` `/pay` `/history` `/leaderboard`\n\n"
+        "`/profile` `/balance` `/daily` `/work` `/pay` `/history` `/leaderboard`\n"
+        "`/profile input: global` — your cross-server identity\n\n"
         "**Banking & credit**\n"
         "`/bank` `/savings` `/hysa` `/cd` `/card` `/loan` `/repay` `/margin` `/bankruptcy`\n\n"
         "**Career & education**\n"
         "`/career` `/applyjob` `/college` `/enroll` `/certifications` `/skills` `/stipend`\n\n"
         "**The exchange**\n"
-        "`/market` `/fundamentals` `/stock` `/orders` `/short` `/derivatives` `/invest` `/portfolio` `/bonds`\n\n"
+        "`/market` `/fundamentals` `/stock` `/orders` `/short` `/derivatives` `/invest` `/portfolio` `/bonds` `/forex`\n\n"
         "**Build an empire**\n"
         "`/business` `/supply` `/produce` `/equipment` `/marketing` `/businessloan` "
         "`/partnership` `/payroll` `/corporate` `/property` `/auction`\n\n"
@@ -200,7 +201,8 @@ void cmd_economy(void*, const char* channel_id, const char*, const char*) {
         "`/economystats` `/chart` `/mystats` `/mychart` `/rank`\n\n"
         "**Server administration:** `/econadmin`\n\n"
         "Choose any slash command and leave **input** blank to see its syntax. "
-        "Legacy players can replace `/` with `~`. Every server evolves independently.");
+        "Legacy players can replace `/` with `~`. Server behavior now shapes "
+        "confidence, cycles, currencies, trade, and world news.");
 }
 
 void run_game_action(const char* action, const char* channel_id,
@@ -225,6 +227,7 @@ void run_game_action(const char* action, const char* channel_id,
 
 GAME_COMMAND(cmd_profile, "profile")
 GAME_COMMAND(cmd_history, "history")
+GAME_COMMAND(cmd_forex, "forex")
 GAME_COMMAND(cmd_bank, "bank")
 GAME_COMMAND(cmd_savings, "savings")
 GAME_COMMAND(cmd_hysa, "hysa")
@@ -479,7 +482,7 @@ void cmd_leaderboard(void*, const char* channel_id, const char*, const char*) {
 CommandRegistration g_commands[] = {
     {"economy", "Show local economy commands", cmd_economy},
     {"balance", "Show your wallet, checking, and net worth", cmd_balance},
-    {"bal", "Alias for balance", cmd_balance},
+    {"forex", "Exchange currencies between connected server economies", cmd_forex},
     {"daily", "Claim daily income", cmd_daily},
     {"work", "Work an odd job for income", cmd_work},
     {"deposit", "Move wallet money into checking", cmd_deposit},
@@ -565,9 +568,9 @@ extern "C" {
 ModuleInfo module_get_info() {
     return {
         "local_economy_game",
-        "1.0.0",
+        "2.0.0",
         "Routine Team",
-        "Persistent full-chaos per-server economy game",
+        "Persistent local economies connected by a global simulation",
         MODULE_API_VERSION,
         MODULE_TYPE_NATIVE
     };

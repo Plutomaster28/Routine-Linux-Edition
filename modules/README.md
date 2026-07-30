@@ -1,55 +1,19 @@
-# Routine Bot - Modules
+# Runtime modules
 
-This directory contains bot modules that extend the kernel's functionality.
+Routine Linux Edition loads user-facing behavior from this directory. Lua
+sources (`.lua`) and native Linux shared libraries (`.so`) are discovered at
+startup. Tutorial sources belong in `../examples/modules/` and are not
+auto-loaded.
 
-## Module Types
+## Supported forms
 
-Routine supports multiple module types:
+- Lua modules define `module_info`, a `commands` table, and optional lifecycle
+  or raw-message hooks.
+- Native C, C++, Fortran, and assembly modules implement the C ABI in
+  `../include/module_interface.h`.
+- Native module API version 4 is the current contract.
 
-### 1. **Lua Modules** (.lua)
-- Easiest to create and modify
-- Perfect for simple commands and scripting
-- No compilation needed
-- Hot-reloadable
-
-**Example:**
-```lua
-module_info = {
-    name = "mymodule",
-    version = "1.0.0",
-    author = "Your Name"
-}
-
-commands = {
-    test = function(channel_id, user_id, args)
-        bot.send_message(channel_id, "Hello from Lua!")
-    end
-}
-```
-
-### 2. **C Modules** (.dll / .so)
-- Maximum performance
-- Full system access
-- Compiled as shared libraries
-- Can be written in C, C++, or even Assembly
-
-**Example:** See `../examples/modules/example_c_module.c`
-
-### 3. **C++ Modules** (.dll / .so)
-- Object-oriented design
-- STL and modern C++ features
-- Same interface as C modules
-
-### 4. **Assembly Modules** (.dll / .so)
-- Ultimate performance
-- Low-level system control
-- Uses same C interface
-
-## Module Structure
-
-### Required Exports (C/C++/Assembly)
-
-All compiled modules must export these functions:
+Native required exports:
 
 ```c
 ModuleInfo module_get_info(void);
@@ -58,135 +22,86 @@ void module_shutdown(void);
 const CommandRegistration* module_register_commands(void);
 ```
 
-### Optional Exports
+Optional exports:
 
 ```c
 void module_on_message(void*, const char*, const char*, const char*);
 void module_on_tick(void*);
 ```
 
-## Kernel Bridge
+## Kernel bridge
 
-The kernel provides these functions to modules:
+The version-4 bridge exposes:
 
-- `send_message(bot_context, channel_id, content)` - Send Discord message
-- `log(level, message)` - Log to console
-- `get_uptime(bot_context)` - Get bot uptime in seconds
-- `get_guild_id(bot_context, channel_id)` - Resolve a channel's guild; returns
-  `NULL` for DMs or unknown channels
-- `get_extension_function(bot_context, name)` - Resolve a function exported by
-  a loaded kernel extension
-- `get_user_roles(bot_context, channel_id, user_id)` - Resolve real Discord
-  role IDs cached from the current guild message
-- `is_guild_admin(bot_context, channel_id, user_id)` - Check guild ownership,
-  Administrator, or Manage Server using Discord role permissions
+- `send_message`
+- `log`
+- `get_uptime`
+- `get_guild_id`
+- `get_extension_function`
+- `get_user_roles`
+- `is_guild_admin`
 
-These bridge additions require module API version 4. They let gameplay modules
-preserve per-server isolation, delegate authoritative state to a kernel
-extension, apply role-derived mechanics, and protect administrative commands
-without trusting command text.
+The economy module uses this boundary to resolve its simulation extension,
+route state by real guild, consume cached Discord roles, and authorize server
+configuration.
 
-## Building Compiled Modules
+## Build
 
-### Quick Method: Use Build Scripts
+Use the repository build instead of compiling ad hoc:
 
-**Windows:**
 ```bash
-# In MSYS2 bash
-./build_modules.sh
-
-# Or in PowerShell/CMD
-build_modules.bat
+./build_linux.sh
 ```
 
-**Linux:**
-```bash
-chmod +x build_modules.sh
-./build_modules.sh
-```
+The modules CMake project builds configured C/C++/Fortran targets, runs their
+tests, and installs the resulting `.so` files here. To add a native target,
+edit `CMakeLists.txt`; see [the module quick start](../QUICKSTART_MODULES.md).
 
-The scripts will automatically:
-- Find all `.c`, `.cpp`, and `.asm`/`.s` files
-- Compile them as shared libraries
-- Place them in the modules folder
-- Show you what was built
+## Loading and reloads
 
-### Manual Compilation
+- `/list` shows loaded native and Lua modules.
+- `/reload input: NAME` reloads a module.
+- Equivalent `~list` and `~reload NAME` forms require legacy message content.
+- Restart after adding or removing commands so the slash-command catalog is
+  regenerated predictably.
 
-**Windows (MSYS2 UCRT64):**
-```bash
-gcc -shared -I../include your_module.c -o your_module.dll
-```
+Discord limits one application to 100 global chat-input commands. The bundled
+production set uses that budget, so tutorial modules remain outside this
+directory by default.
 
-**Linux:**
-```bash
-gcc -shared -fPIC -I../include your_module.c -o your_module.so
-```
+## Bundled production modules
 
-**C++ Module:**
-```bash
-g++ -shared -std=c++17 -I../include your_module.cpp -o your_module.dll
-```
+- `local_economy_module.so`: Discord interface for Economy Version 2.
+- `fortran_math.so`: small native Fortran integration demonstration.
+- `miyamii.lua`, `relay.lua`, and `breakdown.lua`: project-specific Lua
+  modules.
 
-**Assembly Module:**
-```bash
-# Windows
-nasm -f win64 your_module.asm -o your_module.obj
-gcc -shared your_module.obj -o your_module.dll
+## Security
 
-# Linux
-nasm -f elf64 your_module.asm -o your_module.o
-gcc -shared your_module.o -o your_module.so
-```
+- Every native module executes in the bot process with the bot user's operating
+  system privileges. A crash or memory error can take down the kernel.
+- Lua calls `luaL_openlibs`; it is convenient, not a hardened sandbox. Treat
+  Lua modules as trusted code too.
+- Validate lengths, amounts, IDs, and authorization inside every callback.
+- Do not hold pointers supplied by a callback past their documented lifetime.
+- Do not let C++ exceptions cross an `extern "C"` boundary.
+- Keep blocking work off synchronous command and Gateway paths.
 
-## Loading Modules
+## Directory policy
 
-Modules are automatically loaded from this directory when the bot starts.
-
-**Manual loading:**
-- Use `~reload <module_name>` to reload a module
-- Use `~list` to see loaded modules
-
-## Module Folder Organization
-
-```
+```text
 modules/
-├── example.lua              # Example Lua module
-├── ../examples/modules/     # Tutorial sources (not auto-loaded)
-├── mymodule.dll            # Compiled module (Windows)
-├── mymodule.so             # Compiled module (Linux)
-└── README.md               # This file
+├── CMakeLists.txt
+├── local_economy_module.cpp
+├── fortran_math.f90
+├── *.lua
+├── *.so                 # generated, ignored by Git
+└── README.md
+
+examples/modules/
+├── example.lua
+└── example_c_module.c
 ```
 
-## Examples Included
-
-- **example.lua** - Lua module with commands: ~greet, ~calc, ~random, ~luainfo
-- **../examples/modules/example_c_module.c** - C command-module tutorial
-- **local_economy_module.cpp** - Full-chaos persistent local economy game;
-  see `../ECONOMY_GAME.md`
-
-## Best Practices
-
-1. **Always validate input** - Never trust user input
-2. **Handle errors gracefully** - Don't crash the kernel
-3. **Keep it lightweight** - Modules should be fast
-4. **Document your commands** - Use clear descriptions
-5. **Test before deploying** - Test in development first
-
-## Security Notes
-
-- Modules run with full bot permissions
-- Only load trusted modules
-- Lua modules are sandboxed (safer)
-- C/C++ modules have full system access
-
-## Getting Started
-
-1. Copy `example.lua` and modify it for your needs
-2. Or write a C module using `../examples/modules/example_c_module.c` as template
-3. Place the module in this folder
-4. Restart bot or use `~reload` command
-
----
-
-*Routine Bot - Pure C++ kernel with ultimate extensibility* 🚀
+Source and documentation are public. Built libraries, configuration, logs, and
+runtime data remain ignored.

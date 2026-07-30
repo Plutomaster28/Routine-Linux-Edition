@@ -1,9 +1,10 @@
 # Routine Local Economy Game
 
-**Stable release: 1.0.0**
+**Current release: 2.0.0**
 
 This is the persistent full-chaos game built from
-[`local_discord_economy_bot_plan.md`](local_discord_economy_bot_plan.md).
+[`local_discord_economy_bot_plan.md`](local_discord_economy_bot_plan.md) and
+expanded through [`economy-update.txt`](economy-update.txt).
 It puts every major progression layer into one per-server simulation instead
 of ending at the starter command loop.
 
@@ -15,8 +16,8 @@ of ending at the starter command loop.
   player-facing responses.
 - `include/economy_extension_api.h` is the stable C ABI between them.
 - Runtime state is written to `data/local_economy_v1.db`. The `data/`
-  directory is ignored by Git. The version-2 save format retains compatibility
-  with version-1 saves, uses atomic replacement, and verifies a completion
+  directory is ignored by Git. The version-3 save format retains compatibility
+  with version-1 and version-2 saves, uses atomic replacement, and verifies a completion
   marker before loading. An incomplete primary automatically falls back to the
   last complete `.previous` snapshot.
 
@@ -24,14 +25,49 @@ Extensions load before modules, so the game module can resolve the economy API
 during initialization. If the extension is absent or incompatible, the module
 refuses to load instead of accepting unsafe or non-persistent transactions.
 
+## Version 2 simulation
+
+Version 1 established deep, isolated server economies. Version 2 connects
+those economies without flattening them into one global balance:
+
+- Player identity, education, professional licenses, achievements, reputation,
+  serialized collectibles, and long-term statistics follow the Discord user.
+- Wallets, banks, debt, businesses, jobs, property, governments, currencies,
+  inflation, and markets remain local to each server.
+- Foreign-exchange rates emerge from confidence, inflation, trade balance, and
+  capital flow. Exchanges move value between the player's real local accounts
+  and charge a spread.
+- Spending, saving, investment, selling, hiring, layoffs, imports, exports, and
+  capital flight feed each hourly macro cycle.
+- Central-bank policy rates react to inflation and recessions. Prolonged
+  contractions trigger treasury-backed stimulus or public debt issuance.
+- Every listed company has a distinct personality. Expectations move before
+  developing news resolves, so crowded rumors can succeed or unwind.
+- Local news can progress into rare global events. Positive and negative events
+  affect confidence, companies, and every connected economy at the appropriate
+  scope.
+- Server personalities—stable, high growth, financial hub, or chaotic—are
+  classified from observed outcomes rather than chosen presets.
+- Player companies can export production into another connected economy.
+  Mayors control tariffs and can form reciprocal trade agreements.
+
+The durable world layer is additive. Loading an existing Version 1 database
+migrates it automatically and preserves all balances and assets.
+
 ## Commands
 
-The framework currently uses the `~` prefix:
+Slash commands are the primary interface. The same command names and input
+strings work through the legacy `~` prefix when Message Content Intent is
+enabled.
 
 | Command | Description |
 |---|---|
 | `~economy` | Show the game command list |
-| `~balance` / `~bal` | Show wallet, checking, net worth, and work count |
+| `/balance` | Show wallet, checking, net worth, and work count |
+| `/profile input: global` | Show cross-server identity, education, licenses, achievements, and statistics |
+| `/forex input: markets` | Browse connected currencies and emergent server identities |
+| `/forex input: quote <server> [amount]` | Quote an exchange rate and spread |
+| `/forex input: exchange <server> <amount>` | Move value between two existing local accounts |
 | `~daily` | Claim 75–125 currency units once every 24 hours |
 | `~work` | Earn an hourly wage based on career tier |
 | `~deposit <amount>` | Move wallet cash into checking |
@@ -67,6 +103,7 @@ The framework currently uses the `~` prefix:
 | `~bonds <buy\|sell> <amount>` | Use the low-risk investment path |
 | `~business start [industry]` | Launch a food, manufacturing, technology, logistics, or retail company |
 | `~business <fund\|operate\|withdraw\|upgrade>` | Capitalize, run, distribute from, or expand a company |
+| `/business input: export <server> <quantity>` | Sell finished goods into a connected server economy |
 | `~supply buy <quantity>` | Purchase macro- and industry-priced raw materials |
 | `~produce <quantity>` | Spend company cash to convert inputs into finished goods |
 | `~equipment [upgrade]` | Inspect or improve production capacity and efficiency |
@@ -84,17 +121,20 @@ The framework currently uses the `~` prefix:
 | `~auction cancel <id>` | Cancel your listing before it receives a bid |
 | `~collectible <buy\|sell> <quantity>` | Trade sentiment-priced serialized relics |
 | `~collectible serials` | Inspect individual rarity, prior ownership, and transfer counts |
+| `/collectible input: move <serial>` | Carry a globally owned relic into the current local market |
 | `~gamble [slots\|blackjack\|roulette] <amount>` | Choose among distinct NPC casino odds |
 | `~casino <start\|operate\|withdraw>` | Own a reserve-backed casino that can fail |
 | `~insurance <buy\|claim> ...` | Cover assets and file cooldown-limited claims |
 | `~contract <offer\|accept\|pay\|list> ...` | Use explicit player loan contracts |
 | `~agreement <offer\|accept\|cancel\|list> ...` | Manage scheduled employment and rental agreements |
-| `~news` | Read the current Daily Tail headline |
-| `~economyinfo` | Inspect inflation, unemployment, and confidence |
+| `/news input: <all\|local\|global>` | Read persistent developing and resolved news |
+| `/economyinfo` | Inspect cycle, identity, rates, currency strength, trade, and capital flow |
 | `~econadmin ...` | Server-admin configuration for currency, starting funds, and role stipends |
 | `~crime [pickpocket\|fraud\|heist]` | Take escalating criminal risks or inspect your record |
 | `~bail` | Pay the guild treasury to end a jail sentence early |
-| `~government` | Inspect the mayor, platform, tax policy, welfare, and treasury |
+| `/government` | Inspect the mayor, policy rate, tariffs, debt, welfare, treasury, and trade partner |
+| `/government input: tariff <0-25>` | Let the sitting mayor set import tariffs |
+| `/government input: treaty <server>` | Propose reciprocal tariff relief |
 | `~election ...` | Run for mayor, vote, or inspect a live election |
 | `~taxes [pay <amount>]` | Inspect policy or voluntarily fund the treasury |
 | `~welfare` | Claim eligibility- and treasury-gated unemployment assistance |
@@ -162,6 +202,29 @@ For an isolated development database, set `ROUTINE_ECONOMY_DATA` to a file
 path before starting the bot.
 
 ## Implemented Systems
+
+- A persistent global player layer for identity, education, licenses,
+  reputation, achievements, global serialized collectibles, server count,
+  lifetime actions, trade, and foreign-exchange statistics
+- Persistent per-server behavioral flow accounts for consumption, saving,
+  investment, asset sales, hiring, layoffs, capital movement, imports, and
+  exports; hourly confidence, inflation, unemployment, and currency strength
+  derive from those flows
+- Real cross-server foreign exchange with strength-derived rates, spreads,
+  value conservation between existing player accounts, and measurable capital
+  flight/inflow
+- International company exports, target-demand pricing, shipping costs,
+  mayor-controlled tariffs, reciprocal trade agreements, and trade-balance
+  feedback
+- Persistent local and global news with common, uncommon, rare, and legendary
+  events; developing expectations resolve into company-specific outcomes, and
+  qualifying local successes propagate worldwide
+- Company personalities for MEOW, Rat Mining, Yummy Burger, Intelligent,
+  Enron, and the remaining exchange listings, with expectation pressure exposed
+  through `/fundamentals`
+- Emergent recession and recovery tracking, automatic policy-rate adjustment,
+  treasury stimulus, emergency public debt issuance, and four behavior-derived
+  server identities
 
 - Persistent accounts, integer-cent transactions, transfers, items, shops,
   inventories, cooldowns, and leaderboards
@@ -244,7 +307,8 @@ path before starting the bot.
 - Multi-category leaderboards for net worth, liquid cash, credit, debt,
   business value, education, bankruptcies, and actual taxes paid
 - Per-guild inflation, unemployment, consumer confidence, market regimes,
-  economic events, and Daily Tail headlines
+  currency strength, capital flow, trade balance, policy rates, economic
+  identities, and a persistent local/global Daily Tail newswire
 - Cross-system effects: jobs improve income and credit; credit controls loans
   and derivatives; education gates careers and improves businesses; economic
   confidence affects markets and business revenue; bankruptcy seizes financial
@@ -263,9 +327,10 @@ path before starting the bot.
 
 Unsafe free-form legal text remains intentionally excluded: contracts use
 validated financial fields and explicit borrower acceptance. Every major
-system and development phase in the plan now has an active, persistent
-gameplay loop. Future work can deepen tuning, content variety, and governance
-without depending on an entirely absent subsystem.
+Version 2 system has an active, persistent gameplay loop. Future depth can add
+shipping fleets, bilateral treaty ratification, resource-specific import
+chains, and richer event content on top of the implemented trade and world
+market foundation.
 
 To restore the immediately previous database state, stop the bot, replace
 `data/local_economy_v1.db` with `data/local_economy_v1.db.previous`, and

@@ -18,6 +18,12 @@ std::string slash_input_prompt(const std::string& command) {
     if (command == "reload") return "Module name to reload";
     if (command == "script") return "Script action and parameters";
     if (command == "pay") return "Recipient and amount, for example: @user 250";
+    if (command == "forex") return "markets, quote SERVER [AMOUNT], or exchange SERVER AMOUNT";
+    if (command == "profile") return "Leave blank for local finances, or enter: global";
+    if (command == "news") return "all, local, or global";
+    if (command == "government") return "Status, tariff 0-25, or treaty SERVER";
+    if (command == "business") return "Business action; use export SERVER QUANTITY for trade";
+    if (command == "collectible") return "buy/sell, serials, or move SERIAL";
     if (command == "stock") return "Action, ticker, and quantity; leave blank for help";
     if (command == "orders") return "Action and order details; leave blank for help";
     if (command == "econadmin") return "Admin action and values; leave blank for help";

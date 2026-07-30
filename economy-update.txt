@@ -1,0 +1,694 @@
+﻿# Economy Bot v2 – Economic Simulation Expansion
+
+
+## Core Philosophy
+
+
+The economy should not be scripted. It should emerge from player behavior.
+
+
+Instead of players simply earning and spending money, their actions should influence confidence, investment, inflation, and economic health. Prosperity and recessions should be natural consequences of the simulation rather than manually triggered events.
+
+
+---
+
+
+# Global Player Data + Local Economies
+
+
+## Player Data (Global)
+
+
+Player data is shared across every server.
+
+
+Examples:
+
+
+* Account
+* Profile
+* Achievements
+* Education
+* Licenses
+* Reputation
+* Global collectibles
+* Long-term statistics
+
+
+This allows players to move between servers while keeping their identity.
+
+
+---
+
+
+## Server Economy (Local)
+
+
+Each server maintains its own economy.
+
+
+Examples:
+
+
+* Currency
+* Inflation
+* Interest rates
+* Stock market
+* Banks
+* Commodity prices
+* Jobs
+* Salaries
+* Taxes
+* Government debt
+* Consumer confidence
+* Economic health
+
+
+This allows every server to naturally develop into its own economy.
+
+
+---
+
+
+# Foreign Exchange (Forex)
+
+
+Since economies are local, currencies are separate.
+
+
+Players can exchange currencies between servers.
+
+
+Example:
+
+
+```
+Server A Currency
+        ↓
+ Foreign Exchange
+        ↓
+Server B Currency
+```
+
+
+Exchange rates should fluctuate based on supply and demand.
+
+
+Potential mechanics:
+
+
+* Exchange fees
+* Spread between buy/sell prices
+* Currency appreciation/depreciation
+* International investment
+
+
+---
+
+
+# Capital Flight
+
+
+When a server performs poorly, players may move wealth elsewhere.
+
+
+Possible behavior:
+
+
+* Exchange local currency
+* Transfer investments
+* Move savings
+* Buy foreign assets
+
+
+Large migrations should naturally weaken the original economy.
+
+
+This creates realistic market behavior without scripting it.
+
+
+---
+
+
+# Economic Confidence
+
+
+Confidence should influence spending.
+
+
+High confidence:
+
+
+* More investing
+* More spending
+* Business expansion
+* Hiring increases
+
+
+Low confidence:
+
+
+* Saving increases
+* Spending decreases
+* Investment falls
+* Layoffs increase
+
+
+Confidence itself can create economic cycles.
+
+
+---
+
+
+# Player-Created Recessions
+
+
+Players should be capable of causing recessions through panic.
+
+
+Example chain:
+
+
+```
+Rumor spreads
+
+
+↓
+
+
+Players sell assets
+
+
+↓
+
+
+Currency weakens
+
+
+↓
+
+
+Confidence falls
+
+
+↓
+
+
+Businesses earn less
+
+
+↓
+
+
+Layoffs begin
+
+
+↓
+
+
+Consumer spending decreases
+
+
+↓
+
+
+Recession
+```
+
+
+The recession is not scripted.
+
+
+The players created it.
+
+
+---
+
+
+# Recovery Mechanics
+
+
+The economy should also recover naturally.
+
+
+Possible recovery systems:
+
+
+* Lower interest rates
+* Government stimulus
+* Infrastructure spending
+* Strong corporate earnings
+* Consumer confidence returning
+* Increased hiring
+* Long-term undervalued investments attracting buyers
+
+
+The goal is recovery without manually resetting the economy.
+
+
+---
+
+
+# Local vs Global News
+
+
+## Local News
+
+
+Only affects one server.
+
+
+Example:
+
+
+> Fire damages Rat Mining facility.
+
+
+Effects:
+
+
+* Local mining sector falls
+* Local confidence decreases
+* Local stocks react
+
+
+Other servers remain mostly unaffected.
+
+
+---
+
+
+## Global News
+
+
+Affects every connected server.
+
+
+Example:
+
+
+> MEOW unveils the PlayStation 2.
+
+
+Effects:
+
+
+* Electronics sector rises globally
+* Consumer confidence increases
+* Technology companies gain value
+
+
+Every server reacts.
+
+
+---
+
+
+# News Progression
+
+
+Some events can evolve.
+
+
+Example:
+
+
+```
+Local Discovery
+
+
+↓
+
+
+Regional Growth
+
+
+↓
+
+
+Global Export
+
+
+↓
+
+
+Worldwide Economic Boom
+```
+
+
+A local success can eventually become international news.
+
+
+---
+
+
+# Positive Economic Events
+
+
+Positive events should exist just as often as negative ones over long periods.
+
+
+## Common
+
+
+Small improvements.
+
+
+Examples:
+
+
+* Good harvest
+* Better-than-expected earnings
+* Shipping delays resolved
+* Small interest rate reduction
+
+
+---
+
+
+## Uncommon
+
+
+Noticeable improvements.
+
+
+Examples:
+
+
+* Rat Mining discovers new mineral deposit
+* Government infrastructure investment
+* New successful product launch
+
+
+---
+
+
+## Rare
+
+
+Major economic changes.
+
+
+Examples:
+
+
+* MEOW releases the PlayStation 2
+* Revolutionary AI breakthrough
+* Major trade agreement
+* Historic manufacturing innovation
+
+
+---
+
+
+## Legendary
+
+
+Generation-defining events.
+
+
+Examples:
+
+
+* Commercial fusion power
+* Revolutionary computing breakthrough
+* Massive technological revolution
+
+
+These should be remembered for months.
+
+
+---
+
+
+# Negative Events
+
+
+Examples:
+
+
+* Factory fires
+* Banking panic
+* Commodity shortages
+* Trade embargoes
+* Corporate scandals
+* Shipping disruptions
+* Natural disasters
+* Major wars
+
+
+These should lower confidence and negatively affect affected industries.
+
+
+---
+
+
+# Company Personality
+
+
+Every company should feel unique.
+
+
+## MEOW
+
+
+Consumer electronics.
+
+
+Known for:
+
+
+* Consoles
+* Entertainment
+* Consumer technology
+
+
+Often volatile around announcements.
+
+
+---
+
+
+## Rat Mining
+
+
+Mining and raw materials.
+
+
+Known for:
+
+
+* Mineral discoveries
+* Commodity production
+* Industrial resources
+
+
+---
+
+
+## Yummy Burger
+
+
+Food industry.
+
+
+Performance depends heavily on consumer spending.
+
+
+---
+
+
+## Intelligent
+
+
+Enterprise technology.
+
+
+Stable company with occasional major breakthroughs.
+
+
+---
+
+
+## Enron
+
+
+Extremely volatile.
+
+
+Every earnings report makes investors nervous.
+
+
+(Entirely for the meme.)
+
+
+---
+
+
+# Market Speculation
+
+
+Markets should react to expectations.
+
+
+Example:
+
+
+```
+Rumor:
+"MEOW preparing major announcement."
+
+
+↓
+
+
+Stock rises.
+
+
+↓
+
+
+Announcement Day.
+
+
+↓
+
+
+Good announcement
+Stock rises further.
+
+
+OR
+
+
+Disappointing announcement
+Stock crashes.
+```
+
+
+Players should speculate before information becomes public.
+
+
+---
+
+
+# International Trade
+
+
+Future expansion.
+
+
+Possible mechanics:
+
+
+* Imports
+* Exports
+* Shipping
+* Tariffs
+* Trade agreements
+* Resource shortages
+* Manufacturing chains
+
+
+Server economies become interconnected.
+
+
+---
+
+
+# Economic Stabilizers
+
+
+Prevent permanent collapse.
+
+
+Possible mechanics:
+
+
+* Central bank intervention
+* Emergency lending
+* Deposit insurance
+* Government stimulus
+* Bond issuance
+* Interest rate changes
+
+
+These reduce the chance of endless economic decline while still allowing recessions.
+
+
+---
+
+
+# Server Personalities
+
+
+Each server should naturally develop.
+
+
+Examples:
+
+
+## Stable Economy
+
+
+* Low inflation
+* Reliable banking
+* Slow growth
+
+
+---
+
+
+## High Growth
+
+
+* Fast investment
+* High volatility
+* Large rewards
+
+
+---
+
+
+## Financial Hub
+
+
+* Strong currency
+* International investment
+* Large banking sector
+
+
+---
+
+
+## Chaotic Economy
+
+
+* Frequent speculation
+* Huge stock swings
+* Meme investments
+* Extremely volatile
+
+
+These identities should emerge from player behavior rather than presets.
+
+
+---
+
+
+# Long-Term Goal
+
+
+The economy should become a living system where:
+
+
+* Players influence markets.
+* Markets influence players.
+* News changes investment behavior.
+* Confidence creates booms and recessions.
+* Every server develops its own financial identity.
+* Global events connect the entire world.
+* The best stories are created by players, not scripted by the bot.
+
+
+The objective is to build an economy that players remember because **they accidentally caused history**, whether that history was a historic boom, a devastating recession, or a panic caused by someone posting "Bank of Miyamii is cooked" in #general.
