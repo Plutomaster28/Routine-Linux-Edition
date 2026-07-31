@@ -32,6 +32,10 @@ those economies without flattening them into one global balance:
 
 - Player identity, education, professional licenses, achievements, reputation,
   serialized collectibles, and long-term statistics follow the Discord user.
+- Every player-facing entry point, including the lightweight balance, claim,
+  transfer, and shop commands, creates or updates that same global identity.
+  Progression earned in one server is persisted before the command returns and
+  is therefore visible immediately in another server.
 - Wallets, banks, debt, businesses, jobs, property, governments, currencies,
   inflation, and markets remain local to each server.
 - Foreign-exchange rates emerge from confidence, inflation, trade balance, and

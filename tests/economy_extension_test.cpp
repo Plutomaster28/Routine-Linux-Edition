@@ -174,6 +174,13 @@ int main(int argc, char** argv) {
         assert(first.wallet_cents == 5000 && first.checking_cents == 0);
         assert(get_player("101", "200", &isolated) == ECONOMY_OK);
         assert(isolated.wallet_cents == 5000);
+        {
+            std::ifstream account_database(database);
+            const std::string contents(
+                (std::istreambuf_iterator<char>(account_database)),
+                std::istreambuf_iterator<char>());
+            assert(contents.find("GP \"200\"") != std::string::npos);
+        }
 
         int64_t award = 0;
         int64_t remaining = 0;
@@ -578,6 +585,30 @@ int main(int argc, char** argv) {
                std::string::npos);
         assert(std::string(game_output).find("Degree: **Psychology**") !=
                std::string::npos);
+
+        // A progression change must reach the global player record in the
+        // same command, even when the very next action happens elsewhere.
+        assert(game_action("120", "999", "admin", "starting 2000", 10000006,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(get_player("120", "777", &target_fx_before) == ECONOMY_OK);
+        assert(game_action("120", "777", "enroll", "8", 10000007,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(get_player("121", "777", &target_fx_after) == ECONOMY_OK);
+        assert(game_action("121", "777", "profile", "global", 10000008,
+                           game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("Highest education: **Law**") !=
+               std::string::npos);
+        {
+            std::ifstream identity_database(database);
+            const std::string contents(
+                (std::istreambuf_iterator<char>(identity_database)),
+                std::istreambuf_iterator<char>());
+            const std::string record = "GP \"777\"";
+            const size_t first = contents.find(record);
+            assert(first != std::string::npos);
+            assert(contents.find(record, first + record.size()) ==
+                   std::string::npos);
+        }
 
         // Serialized collectibles are globally visible and can be carried
         // from their origin economy into another local market.

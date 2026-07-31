@@ -312,7 +312,7 @@ void cmd_balance(void*, const char* channel_id, const char* user_id, const char*
         return;
     }
     reply(channel_id,
-        "**Your Financial Situation**\n"
+        "**Current Server Economy**\n"
         "Wallet: **" + money(player.wallet_cents) + "**\n"
         "Checking: **" + money(player.checking_cents) + "**\n"
         "Net worth: **" + money(player.wallet_cents + player.checking_cents) + "**\n"
@@ -481,7 +481,7 @@ void cmd_leaderboard(void*, const char* channel_id, const char*, const char*) {
 
 CommandRegistration g_commands[] = {
     {"economy", "Show local economy commands", cmd_economy},
-    {"balance", "Show your wallet, checking, and net worth", cmd_balance},
+    {"balance", "Show balances in this server's local economy", cmd_balance},
     {"forex", "Exchange currencies between connected server economies", cmd_forex},
     {"daily", "Claim daily income", cmd_daily},
     {"work", "Work an odd job for income", cmd_work},

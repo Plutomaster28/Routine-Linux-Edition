@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cstring>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -431,6 +432,11 @@ constexpr int64_t kWorkCooldown = 60 * 60;
 constexpr int64_t kMaximumTransaction = 100000000000000LL;
 
 void add_bounded(int64_t& target, int64_t amount);
+GlobalPlayer& touch_global_player(const std::string& user_id, int64_t now);
+GlobalPlayer& sync_global_player(const std::string& user_id,
+                                 ChaosPlayer& local,
+                                 PlayerDevelopment& development,
+                                 int64_t now);
 
 std::string key_for(const std::string& guild_id, const std::string& user_id) {
     return guild_id + '\x1f' + user_id;
@@ -1544,6 +1550,15 @@ void snapshot(const Player& player, EconomyPlayerSnapshot* out) {
     }
 }
 
+GlobalPlayer& touch_global_player(const std::string& user_id, int64_t now) {
+    GlobalPlayer& global = g_global_players[user_id];
+    if (now > 0) {
+        if (!global.first_seen_unix) global.first_seen_unix = now;
+        global.last_seen_unix = std::max(global.last_seen_unix, now);
+    }
+    return global;
+}
+
 uint32_t economy_api_version_impl() {
     return ECONOMY_EXTENSION_API_VERSION;
 }
@@ -1557,9 +1572,16 @@ int economy_get_player_impl(const char* guild_id, const char* user_id,
     load_locked();
     const std::string key = key_for(guild_id, user_id);
     const bool is_new = g_players.find(key) == g_players.end();
+    const bool global_is_new =
+        g_global_players.find(user_id) == g_global_players.end();
     Player& player = ensure_player(guild_id, user_id);
-    if (is_new && !save_locked()) {
-        g_players.erase(key);
+    const GlobalPlayer global_before = global_is_new
+        ? GlobalPlayer{} : g_global_players.at(user_id);
+    touch_global_player(user_id, static_cast<int64_t>(std::time(nullptr)));
+    if ((is_new || global_is_new) && !save_locked()) {
+        if (is_new) g_players.erase(key);
+        if (global_is_new) g_global_players.erase(user_id);
+        else g_global_players[user_id] = global_before;
         return ECONOMY_STORAGE_ERROR;
     }
     snapshot(player, out);
@@ -1589,6 +1611,13 @@ int claim_impl(const char* guild_id, const char* user_id, int64_t now,
     const bool lifecycle_is_new = g_lifecycle.find(key) == g_lifecycle.end();
     FinancialLifecycle& lifecycle = g_lifecycle[key];
     const FinancialLifecycle lifecycle_before = lifecycle;
+    const bool development_is_new = g_development.find(key) == g_development.end();
+    PlayerDevelopment& development = g_development[key];
+    const PlayerDevelopment development_before = development;
+    const bool global_is_new =
+        g_global_players.find(user_id) == g_global_players.end();
+    const GlobalPlayer global_before = global_is_new
+        ? GlobalPlayer{} : g_global_players.at(user_id);
     GuildEconomy& guild = g_guilds[guild_id];
     g_display_symbol = g_settings[guild_id].currency_symbol;
     int64_t& last_claim = daily ? player.last_daily_unix : player.last_work_unix;
@@ -1600,6 +1629,7 @@ int claim_impl(const char* guild_id, const char* user_id, int64_t now,
         if (chaos_is_new) g_chaos_players.erase(key);
         if (advanced_is_new) g_advanced_players.erase(key);
         if (lifecycle_is_new) g_lifecycle.erase(key);
+        if (development_is_new) g_development.erase(key);
         return ECONOMY_COOLDOWN;
     }
 
@@ -1676,6 +1706,10 @@ int claim_impl(const char* guild_id, const char* user_id, int64_t now,
     } else if (!daily && chaos_before.job_tier > 0 && chaos.job_tier == 0) {
         ++dynamics.layoffs;
     }
+    GlobalPlayer& global =
+        sync_global_player(user_id, chaos, development, now);
+    ++global.lifetime_actions;
+    global.achievements |= 1ull << 0;
     if (save_locked()) return ECONOMY_OK;
     if (is_new) {
         g_players.erase(key);
@@ -1697,6 +1731,10 @@ int claim_impl(const char* guild_id, const char* user_id, int64_t now,
     } else {
         g_lifecycle[key] = lifecycle_before;
     }
+    if (development_is_new) g_development.erase(key);
+    else g_development[key] = development_before;
+    if (global_is_new) g_global_players.erase(user_id);
+    else g_global_players[user_id] = global_before;
     g_dynamics[guild_id] = dynamics_before;
     return ECONOMY_STORAGE_ERROR;
 }
@@ -1724,6 +1762,10 @@ int economy_move_money_impl(const char* guild_id, const char* user_id,
     const bool is_new = g_players.find(key) == g_players.end();
     Player& player = ensure_player(guild_id, user_id);
     const Player before = player;
+    const bool global_is_new =
+        g_global_players.find(user_id) == g_global_players.end();
+    const GlobalPlayer global_before = global_is_new
+        ? GlobalPlayer{} : g_global_players.at(user_id);
     GuildDynamics& dynamics = g_dynamics[guild_id];
     const GuildDynamics dynamics_before = dynamics;
     int64_t& source = deposit ? player.wallet_cents : player.checking_cents;
@@ -1735,12 +1777,18 @@ int economy_move_money_impl(const char* guild_id, const char* user_id,
     source -= amount;
     destination += amount;
     if (deposit) add_bounded(dynamics.saving_cents, amount / 4);
+    GlobalPlayer& global = touch_global_player(
+        user_id, static_cast<int64_t>(std::time(nullptr)));
+    ++global.lifetime_actions;
+    global.achievements |= 1ull << 0;
     if (save_locked()) return ECONOMY_OK;
     if (is_new) {
         g_players.erase(key);
     } else {
         g_players[key] = before;
     }
+    if (global_is_new) g_global_players.erase(user_id);
+    else g_global_players[user_id] = global_before;
     g_dynamics[guild_id] = dynamics_before;
     return ECONOMY_STORAGE_ERROR;
 }
@@ -1785,12 +1833,19 @@ int economy_transfer_impl(const char* guild_id, const char* from_user,
         g_global_players.find(from_user) == g_global_players.end();
     const GlobalPlayer global_before = global_was_new
         ? GlobalPlayer{} : g_global_players.at(from_user);
+    const bool recipient_global_was_new =
+        g_global_players.find(to_user) == g_global_players.end();
+    const GlobalPlayer recipient_global_before = recipient_global_was_new
+        ? GlobalPlayer{} : g_global_players.at(to_user);
     sender.wallet_cents -= amount;
     recipient.wallet_cents += amount;
     add_bounded(dynamics.spending_cents, amount);
-    GlobalPlayer& global = g_global_players[from_user];
+    GlobalPlayer& global = touch_global_player(
+        from_user, static_cast<int64_t>(std::time(nullptr)));
     global.lifetime_trade_cents += static_cast<uint64_t>(amount);
     ++global.lifetime_actions;
+    global.achievements |= 1ull << 0;
+    touch_global_player(to_user, static_cast<int64_t>(std::time(nullptr)));
     if (save_locked()) return ECONOMY_OK;
     if (sender_is_new) {
         g_players.erase(sender_key);
@@ -1805,6 +1860,8 @@ int economy_transfer_impl(const char* guild_id, const char* from_user,
     g_dynamics[guild_id] = dynamics_before;
     if (global_was_new) g_global_players.erase(from_user);
     else g_global_players[from_user] = global_before;
+    if (recipient_global_was_new) g_global_players.erase(to_user);
+    else g_global_players[to_user] = recipient_global_before;
     return ECONOMY_STORAGE_ERROR;
 }
 
@@ -1830,17 +1887,28 @@ int economy_buy_item_impl(const char* guild_id, const char* user_id,
         return ECONOMY_INVALID_ARGUMENT;
     }
     const Player before = player;
+    const bool global_is_new =
+        g_global_players.find(user_id) == g_global_players.end();
+    const GlobalPlayer global_before = global_is_new
+        ? GlobalPlayer{} : g_global_players.at(user_id);
     GuildDynamics& dynamics = g_dynamics[guild_id];
     const GuildDynamics dynamics_before = dynamics;
     player.wallet_cents -= total;
     player.items[item_index] += quantity;
     add_bounded(dynamics.spending_cents, total);
+    GlobalPlayer& global = touch_global_player(
+        user_id, static_cast<int64_t>(std::time(nullptr)));
+    ++global.lifetime_actions;
+    global.lifetime_trade_cents += static_cast<uint64_t>(total);
+    global.achievements |= 1ull << 0;
     if (save_locked()) return ECONOMY_OK;
     if (is_new) {
         g_players.erase(key);
     } else {
         g_players[key] = before;
     }
+    if (global_is_new) g_global_players.erase(user_id);
+    else g_global_players[user_id] = global_before;
     g_dynamics[guild_id] = dynamics_before;
     return ECONOMY_STORAGE_ERROR;
 }
@@ -2019,9 +2087,7 @@ GlobalPlayer& sync_global_player(const std::string& user_id,
                                  ChaosPlayer& local,
                                  PlayerDevelopment& development,
                                  int64_t now) {
-    GlobalPlayer& global = g_global_players[user_id];
-    if (!global.first_seen_unix) global.first_seen_unix = now;
-    global.last_seen_unix = std::max(global.last_seen_unix, now);
+    GlobalPlayer& global = touch_global_player(user_id, now);
     if (local.degree > 0 && local.degree <= 9) {
         global.education_mask |= 1u << local.degree;
     }

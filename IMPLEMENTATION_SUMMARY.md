@@ -55,6 +55,9 @@ The economy extension persists a backwards-compatible version-3 database:
 - Existing beta databases receive a one-time best-of global progression
   migration. Credentials are combined, progression keeps the strongest
   values, and local money, debt, assets, and markets are never merged.
+- Basic account, balance, claim, transfer, money-movement, and purchase paths
+  transactionally establish the global player record; successful progression
+  commands synchronize it before saving, so cross-server reads are immediate.
 - The untouched input is preserved as
   `local_economy_v1.db.pre_global_merge`; an `MV 1` record makes the migration
   idempotent.
