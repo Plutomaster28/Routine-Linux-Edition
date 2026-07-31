@@ -422,6 +422,8 @@ uint64_t g_next_agreement_id = 1;
 uint64_t g_next_news_id = 1;
 std::mt19937_64 g_rng{std::random_device{}()};
 bool g_loaded = false;
+bool g_loaded_from_previous = false;
+uint32_t g_data_migration_version = 0;
 thread_local std::string g_display_symbol = "$";
 
 constexpr int64_t kDailyCooldown = 24 * 60 * 60;
@@ -558,6 +560,7 @@ bool save_locked() {
     if (!output) return false;
 
     output << "ROUTINE_ECONOMY 3\n";
+    output << "MV " << g_data_migration_version << '\n';
     for (const auto& entry : g_players) {
         const size_t split = entry.first.find('\x1f');
         if (split == std::string::npos) continue;
@@ -861,7 +864,7 @@ bool save_locked() {
     if (!output) return false;
     output.close();
 
-    if (fs::exists(path)) {
+    if (fs::exists(path) && !g_loaded_from_previous) {
         fs::path previous = path;
         previous += ".previous";
         std::error_code backup_copy_error;
@@ -870,7 +873,10 @@ bool save_locked() {
     }
 
     fs::rename(temporary, path, ec);
-    if (!ec) return true;
+    if (!ec) {
+        g_loaded_from_previous = false;
+        return true;
+    }
 
     // Windows does not replace an existing destination during rename. Keep a
     // recoverable backup until the replacement is safely in place.
@@ -890,6 +896,122 @@ bool save_locked() {
         return false;
     }
     fs::remove(backup, backup_error);
+    g_loaded_from_previous = false;
+    return true;
+}
+
+bool migrate_beta_global_players_locked(const fs::path& source_path) {
+    constexpr uint32_t kBestOfMigrationVersion = 1;
+    if (g_data_migration_version >= kBestOfMigrationVersion) return true;
+
+    fs::path archive = data_path();
+    archive += ".pre_global_merge";
+    std::error_code ec;
+    if (!fs::exists(archive)) {
+        fs::copy_file(source_path, archive, fs::copy_options::none, ec);
+        if (ec) {
+            log_message("[ECONOMY] Beta migration paused: could not create the "
+                        "pre-global-merge archive");
+            return false;
+        }
+    }
+
+    const auto globals_before = g_global_players;
+    const uint32_t migration_before = g_data_migration_version;
+    std::unordered_map<std::string, uint32_t> server_counts;
+    std::unordered_map<std::string, uint64_t> best_audit_counts;
+    std::unordered_map<std::string, uint64_t> per_server_audit_counts;
+
+    for (const auto& entry : g_audit) {
+        ++per_server_audit_counts[key_for(entry.guild_id, entry.user_id)];
+    }
+    for (const auto& entry : per_server_audit_counts) {
+        const size_t split = entry.first.find('\x1f');
+        if (split != std::string::npos) {
+            const std::string user = entry.first.substr(split + 1);
+            best_audit_counts[user] =
+                std::max(best_audit_counts[user], entry.second);
+        }
+    }
+
+    for (const auto& entry : g_players) {
+        const size_t split = entry.first.find('\x1f');
+        if (split == std::string::npos) continue;
+        const std::string user = entry.first.substr(split + 1);
+        GlobalPlayer& global = g_global_players[user];
+        ++server_counts[user];
+        global.lifetime_actions = std::max<uint64_t>(
+            global.lifetime_actions,
+            std::max(entry.second.work_count, best_audit_counts[user]));
+    }
+
+    for (const auto& entry : g_chaos_players) {
+        const size_t split = entry.first.find('\x1f');
+        if (split == std::string::npos) continue;
+        const std::string user = entry.first.substr(split + 1);
+        const ChaosPlayer& local = entry.second;
+        GlobalPlayer& global = g_global_players[user];
+        if (local.degree > 0 && local.degree <= 9) {
+            global.education_mask |= 1u << local.degree;
+        }
+        global.lifetime_actions = std::max<uint64_t>(
+            global.lifetime_actions, local.experience);
+        int32_t legacy_reputation =
+            35 + (local.credit_score - 300) * 35 / 550 +
+            static_cast<int32_t>(local.degree) * 2;
+        const auto business = g_business_profiles.find(entry.first);
+        if (business != g_business_profiles.end()) {
+            legacy_reputation += business->second.reputation / 5;
+        }
+        const auto crime = g_crime_players.find(entry.first);
+        if (crime != g_crime_players.end()) {
+            legacy_reputation -= static_cast<int32_t>(
+                std::min<uint32_t>(20, crime->second.offenses));
+        }
+        global.reputation =
+            std::max(global.reputation, std::clamp(legacy_reputation, 0, 100));
+    }
+
+    for (const auto& entry : g_development) {
+        const size_t split = entry.first.find('\x1f');
+        if (split == std::string::npos) continue;
+        GlobalPlayer& global = g_global_players[entry.first.substr(split + 1)];
+        global.licenses |= entry.second.certifications;
+    }
+
+    for (const auto& entry : g_security) {
+        const size_t split = entry.first.find('\x1f');
+        if (split == std::string::npos || entry.second.created_unix <= 0) continue;
+        GlobalPlayer& global = g_global_players[entry.first.substr(split + 1)];
+        if (!global.first_seen_unix) {
+            global.first_seen_unix = entry.second.created_unix;
+        } else {
+            global.first_seen_unix =
+                std::min(global.first_seen_unix, entry.second.created_unix);
+        }
+        global.last_seen_unix =
+            std::max(global.last_seen_unix, entry.second.created_unix);
+    }
+
+    for (auto& entry : g_global_players) {
+        GlobalPlayer& global = entry.second;
+        if (global.lifetime_actions) global.achievements |= 1ull << 0;
+        if (server_counts[entry.first] >= 2) global.achievements |= 1ull << 1;
+        if (global.education_mask) global.achievements |= 1ull << 2;
+        if (global.licenses) global.achievements |= 1ull << 3;
+    }
+
+    g_data_migration_version = kBestOfMigrationVersion;
+    if (!save_locked()) {
+        g_global_players = globals_before;
+        g_data_migration_version = migration_before;
+        log_message("[ECONOMY] Beta best-of migration could not be saved; "
+                    "local state was left unchanged");
+        return false;
+    }
+    log_message("[ECONOMY] Beta data migrated with best-of global progression "
+                "rules; server balances remain separate. Archive: " +
+                archive.string());
     return true;
 }
 
@@ -904,10 +1026,14 @@ void load_locked() {
         if (complete_database_file(previous)) {
             log_message("[ECONOMY] Primary database incomplete; loading previous snapshot");
             load_path = previous;
+            g_loaded_from_previous = true;
         }
     }
     std::ifstream input(load_path);
-    if (!input) return;
+    if (!input) {
+        g_data_migration_version = 1;
+        return;
+    }
 
     std::string magic;
     unsigned version = 0;
@@ -920,6 +1046,10 @@ void load_locked() {
     std::string record;
     while (input >> record) {
         if (record == "END") break;
+        if (record == "MV") {
+            if (!(input >> g_data_migration_version)) break;
+            continue;
+        }
         if (record == "C") {
             std::string guild;
             std::string user;
@@ -1400,6 +1530,7 @@ void load_locked() {
             g_players[key_for(guild, user)] = player;
         }
     }
+    migrate_beta_global_players_locked(load_path);
 }
 
 void snapshot(const Player& player, EconomyPlayerSnapshot* out) {

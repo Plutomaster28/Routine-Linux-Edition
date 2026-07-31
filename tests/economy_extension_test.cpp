@@ -70,6 +70,7 @@ int main(int argc, char** argv) {
     std::filesystem::remove(database, ec);
     std::filesystem::remove(database.string() + ".tmp", ec);
     std::filesystem::remove(database.string() + ".previous", ec);
+    std::filesystem::remove(database.string() + ".pre_global_merge", ec);
 
     // Start from a real pre-world-layer save to prove the Version 3 writer
     // migrates existing Version 2 accounts without resetting them.
@@ -78,6 +79,16 @@ int main(int argc, char** argv) {
         assert(legacy);
         legacy << "ROUTINE_ECONOMY 2\n"
                << "P \"199\" \"299\" 1234 567 0 0 9 1 2 3\n"
+               << "P \"198\" \"299\" 8765 4321 0 0 40 3 2 1\n"
+               << "C \"199\" \"299\" 0 0 0 0 0 0 620 12 1 1 1 0 0 0 0"
+                  " 0 0 0 0 0 0 0 0 0\n"
+               << "C \"198\" \"299\" 0 0 0 0 0 0 800 30 3 8 4 1 0 0 0"
+                  " 0 0 0 0 0 0 0 0 0\n"
+               << "B \"198\" \"299\" 1 2 3 90 0 0 0 0 0 0 0 0 0\n"
+               << "D \"199\" \"299\" 1\n"
+               << "D \"198\" \"299\" 4\n"
+               << "I \"199\" \"299\" 700000 0 0 0\n"
+               << "I \"198\" \"299\" 600000 0 0 0\n"
                << "END\n";
         assert(legacy);
     }
@@ -141,6 +152,21 @@ int main(int argc, char** argv) {
         assert(migrated.checking_cents == 567);
         assert(migrated.work_count == 9);
         assert(migrated.item_quantities[0] == 1);
+        char migration_output[1900]{};
+        assert(game_action("199", "299", "profile", "global", 1000000,
+                           migration_output,
+                           sizeof(migration_output)) == ECONOMY_OK);
+        const std::string migrated_profile(migration_output);
+        assert(migrated_profile.find("Connected economies: **2**") !=
+               std::string::npos);
+        assert(migrated_profile.find("Highest education: **Law**") !=
+               std::string::npos);
+        assert(migrated_profile.find("License mask: **0x5**") !=
+               std::string::npos);
+        assert(migrated_profile.find("Lifetime actions: **40**") !=
+               std::string::npos);
+        assert(std::filesystem::exists(
+            database.string() + ".pre_global_merge"));
 
         EconomyPlayerSnapshot first{};
         EconomyPlayerSnapshot isolated{};
@@ -606,6 +632,10 @@ int main(int argc, char** argv) {
         assert(migrated_database >> magic >> format_version);
         assert(magic == "ROUTINE_ECONOMY");
         assert(format_version == 3);
+        std::string migrated_contents(
+            (std::istreambuf_iterator<char>(migrated_database)),
+            std::istreambuf_iterator<char>());
+        assert(migrated_contents.find("\nMV 1\n") != std::string::npos);
     }
 
     // A truncated primary save must recover from the last complete atomic

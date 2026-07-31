@@ -52,6 +52,13 @@ the catalog remains within that limit; `/balance` remains unchanged.
 
 The economy extension persists a backwards-compatible version-3 database:
 
+- Existing beta databases receive a one-time best-of global progression
+  migration. Credentials are combined, progression keeps the strongest
+  values, and local money, debt, assets, and markets are never merged.
+- The untouched input is preserved as
+  `local_economy_v1.db.pre_global_merge`; an `MV 1` record makes the migration
+  idempotent.
+
 - Version 1 and Version 2 records load without reset.
 - Saves use a temporary file, completion marker, atomic replacement, and a
   recoverable `.previous` snapshot.

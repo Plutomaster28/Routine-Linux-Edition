@@ -54,6 +54,29 @@ those economies without flattening them into one global balance:
 The durable world layer is additive. Loading an existing Version 1 database
 migrates it automatically and preserves all balances and assets.
 
+## Beta data migration
+
+The first Version 2 start against an older save performs one idempotent
+best-of migration and writes `MV 1` into the database:
+
+- education and professional-license masks are combined across every server;
+- lifetime activity, reputation, and account age keep the strongest or oldest
+  trustworthy value rather than adding duplicate server records together;
+- global achievements are reconstructed from the migrated progression; and
+- wallets, bank accounts, savings, debt, portfolios, businesses, property,
+  items, governments, and markets stay unchanged and isolated per server.
+
+Before that write, the extension creates
+`data/local_economy_v1.db.pre_global_merge`. It never overwrites that archive,
+so the untouched beta world remains available even after later `.previous`
+snapshots rotate. If the archive cannot be created, migration pauses without
+changing the loaded player data and retries on the next start.
+
+To begin with an empty world instead, stop Routine and move
+`data/local_economy_v1.db` plus its `.previous` file to an archive location
+outside `data/`, then restart. Do not delete the files until the new world has
+been verified. The whole `data/` directory remains excluded from Git.
+
 ## Commands
 
 Slash commands are the primary interface. The same command names and input
