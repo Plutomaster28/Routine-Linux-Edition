@@ -492,7 +492,7 @@ CommandRegistration g_commands[] = {
     {"buy", "Buy a basic item", cmd_buy},
     {"inventory", "Show your basic items", cmd_inventory},
     {"leaderboard", "Rank server players by net worth", cmd_leaderboard},
-    {"profile", "Show complete finances, career, credit, and assets", cmd_profile},
+    {"profile", "Show global identity and this server's finances", cmd_profile},
     {"history", "Show your recent persistent financial history", cmd_history},
     {"bank", "Show banks, accounts, debt, and credit", cmd_bank},
     {"savings", "Deposit to or withdraw from savings", cmd_savings},

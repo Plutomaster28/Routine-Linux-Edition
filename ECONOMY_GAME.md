@@ -87,6 +87,7 @@ enabled.
 |---|---|
 | `~economy` | Show the game command list |
 | `/balance` | Show wallet, checking, net worth, and work count |
+| `/profile` | Show one global player identity above the current server's local finances |
 | `/profile input: global` | Show cross-server identity, education, licenses, achievements, and statistics |
 | `/forex input: markets` | Browse connected currencies and emergent server identities |
 | `/forex input: quote <server> [amount]` | Quote an exchange rate and spread |

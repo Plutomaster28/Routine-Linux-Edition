@@ -572,6 +572,10 @@ int main(int argc, char** argv) {
         assert(std::string(game_output).find("Psychology") != std::string::npos);
         assert(game_action("111", "800", "profile", "", 10000005,
                            game_output, sizeof(game_output)) == ECONOMY_OK);
+        assert(std::string(game_output).find("Global Player Identity") !=
+               std::string::npos);
+        assert(std::string(game_output).find("Current Server Economy") !=
+               std::string::npos);
         assert(std::string(game_output).find("Degree: **Psychology**") !=
                std::string::npos);
 

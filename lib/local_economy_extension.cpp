@@ -3821,24 +3821,41 @@ int economy_game_action_impl(const char* guild_id, const char* user_id,
                 << "**\nYour local balances and assets remain unique to each server.";
             message = out.str();
         } else {
-        const int64_t liquid = wallet.wallet_cents + wallet.checking_cents +
-                               player.savings_cents + player.hysa_cents;
-        const int64_t assets = portfolio_value(player, guild) +
-                               advanced_asset_value(advanced, guild) +
-                               property_equity(guild_id, user_id) +
-                               business_tangible_value(guild_id, user_id);
-        message = "**Complete Financial Profile**\nWallet: **" + cash(wallet.wallet_cents) +
-            "** | Checking: **" + cash(wallet.checking_cents) +
-            "**\nSavings/HYSA: **" + cash(player.savings_cents) + " / " +
-            cash(player.hysa_cents) + "**\nDebt: **" + cash(player.debt_cents) +
-            "** | Margin: **" + cash(advanced.margin_debt_cents) +
-            "** | Credit: **" + std::to_string(player.credit_score) +
-            "**\nCareer: **" + kJobs[std::min<uint32_t>(player.job_tier, 4)] +
-            "** | Degree: **" + kDegrees[std::min<uint32_t>(player.degree, 9)] +
-            "**\nInvested assets: **" + cash(assets) + "**\nNet worth: **" +
-            cash(liquid + assets - player.debt_cents) + "**\nBankruptcies: **" +
-            std::to_string(player.bankruptcies) +
-            "**\nGlobal identity: `/profile input: global`";
+            const int64_t liquid = wallet.wallet_cents + wallet.checking_cents +
+                                   player.savings_cents + player.hysa_cents;
+            const int64_t assets = portfolio_value(player, guild) +
+                                   advanced_asset_value(advanced, guild) +
+                                   property_equity(guild_id, user_id) +
+                                   business_tangible_value(guild_id, user_id);
+            std::ostringstream out;
+            out << "**Global Player Identity**\n"
+                << "Reputation: **" << global.reputation
+                << "/100** | Connected economies: **"
+                << player_server_count(user_id) << "**\n"
+                << "Degree: **"
+                << kDegrees[std::min<int32_t>(
+                    9, highest_education(global.education_mask))]
+                << "** (global) | Licenses: **0x" << std::hex
+                << std::uppercase << global.licenses << std::dec << "**\n"
+                << "Achievements: **"
+                << achievement_count(global.achievements)
+                << "** | Global collectibles: **"
+                << global_collectible_count(user_id) << "**\n\n"
+                << "**Current Server Economy**\n"
+                << "Wallet: **" << cash(wallet.wallet_cents)
+                << "** | Checking: **" << cash(wallet.checking_cents)
+                << "**\nSavings/HYSA: **" << cash(player.savings_cents)
+                << " / " << cash(player.hysa_cents)
+                << "**\nDebt: **" << cash(player.debt_cents)
+                << "** | Margin: **" << cash(advanced.margin_debt_cents)
+                << "** | Credit: **" << player.credit_score
+                << "**\nCareer (this server): **"
+                << kJobs[std::min<uint32_t>(player.job_tier, 4)]
+                << "**\nInvested assets: **" << cash(assets)
+                << "** | Net worth: **"
+                << cash(liquid + assets - player.debt_cents)
+                << "**\nBankruptcies: **" << player.bankruptcies << "**";
+            message = out.str();
         }
     } else if (action == "bank") {
         if (input.size() == 2 && input[0] == "select") {
